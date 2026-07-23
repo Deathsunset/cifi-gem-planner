@@ -31,3 +31,6 @@ was adapted from the original community Gem Planner spreadsheet.
 
 This project is not affiliated with or endorsed by Octocube Games. CIFI and its
 game assets belong to their respective rights holders.
+
+Community adaptation and web development by
+[Deathsunset](https://github.com/Deathsunset).

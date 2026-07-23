@@ -37,6 +37,8 @@ test("keeps the public disclaimer, credits and browser-only privacy note", async
   assert.match(page, /Not affiliated with or endorsed by Octocube Games/);
   assert.match(page, /Original community Gem Planner spreadsheet/);
   assert.match(page, /Your progression stays in this browser/);
+  assert.match(page, /Community adaptation and web development by/);
+  assert.match(page, /https:\/\/github\.com\/Deathsunset/);
   assert.match(readme, /CIFI is created by/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.ok(assetFiles.includes(".nojekyll"));

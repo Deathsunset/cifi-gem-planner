@@ -491,7 +491,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.2</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.3</span></p></div>
       </aside>
 
       <section className="workspace">
@@ -577,7 +577,7 @@ export default function Home() {
           {view === "weights" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">PERSONAL PRIORITIES</p><h1>Resource weights</h1><p>Tell the planner what matters most to your build.</p></div><button className="ghost-button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Restore defaults</button></div><div className="weights-grid">{(Object.keys(RESOURCE_META) as Resource[]).map((resource) => <article className="weight-card panel" key={resource}><ResourceIcon resource={resource} /><div><strong>{RESOURCE_META[resource].label}</strong><small>Relative value</small></div><input type="range" min="1" max="120" value={weights[resource]} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Number(event.target.value) }))} style={{ "--range": RESOURCE_META[resource].color } as React.CSSProperties} /><output>{weights[resource]}</output></article>)}</div><div className="info-panel panel"><span>i</span><div><strong>How weights work</strong><p>A higher value pushes upgrades for that resource towards the top. Scores are relative, so focus on the balance between resources rather than the absolute numbers.</p></div></div></section>}
 
           <footer className="site-footer">
-            <div><strong>Unofficial, non-commercial community tool</strong><p>Not affiliated with or endorsed by Octocube Games. CIFI and its game assets belong to their respective rights holders.</p></div>
+            <div><strong>Unofficial, non-commercial community tool</strong><p>Not affiliated with or endorsed by Octocube Games. CIFI and its game assets belong to their respective rights holders.</p><p className="creator-credit">Community adaptation and web development by <a href="https://github.com/Deathsunset" target="_blank" rel="noreferrer">Deathsunset</a>.</p></div>
             <div className="footer-links"><a href="https://octocubegames.com/" target="_blank" rel="noreferrer">CIFI by Octocube Games</a><a href="https://docs.google.com/spreadsheets/d/1tpf9QzHdih9E8R0_IA96FY4cMOHRM0cO0a5rd9TtD-I/edit?gid=0#gid=0" target="_blank" rel="noreferrer">Original community Gem Planner spreadsheet</a><span>Your progression stays in this browser.</span></div>
           </footer>
         </div>
