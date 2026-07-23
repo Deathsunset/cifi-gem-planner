@@ -88,10 +88,7 @@ const EXTRA_NODE_EXODUS_LEVEL = 5;
 const EVOLUTION_NODE_LEVEL = 1;
 
 function availableNodeLimit(gem: GemName, exodusLevel: number, gemLevel: number) {
-  if (gem === "Exodus") {
-    if (gemLevel >= EXTRA_NODE_EXODUS_LEVEL) return GEM_META.Exodus.defaultProgress.maxNodes;
-    return gemLevel >= 1 ? 3 : 0;
-  }
+  if (gem === "Exodus") return exodusLevel >= EXTRA_NODE_EXODUS_LEVEL ? GEM_META.Exodus.defaultProgress.maxNodes : 0;
   if (gem === "Evolution") return gemLevel >= EVOLUTION_NODE_LEVEL ? GEM_META.Evolution.defaultProgress.maxNodes : 0;
   if (exodusLevel >= EXTRA_NODE_EXODUS_LEVEL) return GEM_META[gem].defaultProgress.maxNodes;
   return exodusLevel >= BASE_NODE_EXODUS_LEVEL ? 3 : 0;
@@ -100,7 +97,7 @@ function availableNodeLimit(gem: GemName, exodusLevel: number, gemLevel: number)
 function nodeLockReason(gem: GemName, nodeIndex: number, exodusLevel: number, gemLevel: number) {
   if (nodeIndex <= availableNodeLimit(gem, exodusLevel, gemLevel)) return "";
   if (gem === "Evolution") return "Requires Evolution Gem level 1";
-  if (gem === "Exodus") return nodeIndex <= 3 ? "Requires Exodus Gem level 1" : "Requires Exodus Gem level 5";
+  if (gem === "Exodus") return "Requires Exodus Gem level 5";
   if (nodeIndex > 3) return "Requires Exodus Gem level 5";
   return "Requires Exodus Gem level 3";
 }
@@ -663,7 +660,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.8</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.8.1</span></p></div>
       </aside>
 
       <section className="workspace">
