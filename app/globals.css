@@ -96,6 +96,7 @@ select { min-width: 128px; padding: 9px 30px 9px 11px; border: 1px solid var(--b
 .quick-plan-actions { display: grid; gap: 5px; }.quick-plan-actions button { min-height: 29px; padding: 6px 9px; border: 1px solid rgba(140,130,255,.25); border-radius: 7px; background: rgba(140,130,255,.07); color: #a9a2ff; font-size: .55rem; font-weight: 750; cursor: pointer; white-space: nowrap; }.quick-plan-actions button:last-child { border-color: rgba(100,224,160,.24); background: rgba(100,224,160,.07); color: #79ddaa; }.quick-plan-actions button:disabled { border-color: var(--border); background: rgba(255,255,255,.02); color: #566375; cursor: not-allowed; }
 .edit-setup-link { padding: 8px 9px; border: 0; background: transparent; color: #8f9cad; font-size: .58rem; cursor: pointer; white-space: nowrap; }.edit-setup-link:hover { color: #c7d0dc; }
 .node-editor > span { display: block; margin-bottom: 6px; color: #778598; font-size: .58rem; font-weight: 700; }.node-editor > div { display: flex; gap: 5px; }.node-editor button { width: 29px; height: 29px; border: 1px solid var(--border); border-radius: 50%; background: #151d29; color: #667487; font-size: .58rem; cursor: pointer; }.node-editor button.active { border-color: color-mix(in srgb, var(--gem), transparent 42%); background: color-mix(in srgb, var(--gem), transparent 82%); color: var(--gem); box-shadow: 0 0 12px color-mix(in srgb, var(--gem), transparent 80%); }.node-editor button.planned { border-style: dashed; border-color: #64e0a0; background: rgba(100,224,160,.08); color: #74e4aa; box-shadow: 0 0 12px rgba(100,224,160,.12); }
+.node-editor button.locked, .node-editor button:disabled:not(.planned) { border-style: dashed; border-color: #303a49; background: #101620; color: #465162; box-shadow: none; cursor: not-allowed; opacity: .72; }.node-unlock-note { margin: 7px 0 0; color: #8d9aab; font-size: .54rem; line-height: 1.35; }
 .quick-node-purchase, .node-purchase-actions { display: grid; grid-template-columns: 28px 1fr; gap: 5px; }.quick-node-purchase > button:first-child, .node-purchase-actions > button:first-child { border: 1px solid var(--border); border-radius: 7px; background: #18212d; color: #93a1b2; cursor: pointer; }.quick-node-purchase > button:first-child:disabled, .node-purchase-actions > button:first-child:disabled { opacity: .3; cursor: not-allowed; }
 .node-purchase-button { min-height: 31px; padding: 6px 8px; border: 1px solid rgba(100,224,160,.24); border-radius: 7px; background: rgba(100,224,160,.07); color: #7bdbab; font-size: .56rem; font-weight: 750; cursor: pointer; white-space: nowrap; }.node-purchase-button:disabled { border-color: var(--border); background: rgba(255,255,255,.02); color: #596779; cursor: not-allowed; }
 .clear-filter { padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: rgba(255,255,255,.025); color: #94a1b2; font-size: .61rem; cursor: pointer; white-space: nowrap; }
@@ -148,6 +149,56 @@ select { min-width: 128px; padding: 9px 30px 9px 11px; border: 1px solid var(--b
 .info-panel { display: flex; gap: 13px; margin-top: 12px; padding: 17px; }.info-panel > span { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; background: rgba(95,205,245,.1); color: var(--cyan); font-size: .7rem; font-weight: 850; }.info-panel strong { font-size: .7rem; }.info-panel p { margin: 4px 0 0; color: #718095; font-size: .62rem; line-height: 1.55; }
 .site-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 30px; margin-top: 26px; padding: 20px 4px 0; border-top: 1px solid var(--border); color: #596779; }.site-footer strong { color: #8f9cac; font-size: .65rem; }.site-footer p { max-width: 570px; margin: 5px 0 0; font-size: .58rem; line-height: 1.55; }.footer-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px 15px; max-width: 620px; font-size: .58rem; text-align: right; }.footer-links a { color: #7770c8; text-decoration: none; }.footer-links a:hover { color: #aaa4ff; text-decoration: underline; }.footer-links span { flex-basis: 100%; }
 .creator-credit { color: #78869a; }.creator-credit a { color: #9a93ec; font-weight: 700; text-decoration: none; }.creator-credit a:hover { color: #b9b4ff; text-decoration: underline; }
+
+/* Readability pass: keep the compact layout without relying on sub-10px text. */
+.sidebar nav > p, .prototype-pill, .eyebrow { font-size: .66rem; }
+.sidebar nav button b, .sidebar-bottom > p, .panel-heading h2 small, .plan-panel .panel-heading > span { font-size: .63rem; }
+.hero-actions label > span, .result-controls label > span { font-size: .62rem; }
+.stats-grid article div:last-child > span { font-size: .64rem; }
+.stats-grid small { font-size: .67rem; line-height: 1.35; }
+.gem-network > span, .gem-network button.all-gems > span { font-size: .62rem; }
+.gem-network strong { font-size: .67rem; }
+.gem-network small { font-size: .625rem; line-height: 1.3; }
+.quick-gem-title span, .gem-state-summary span { font-size: .625rem; }
+.gem-state-summary strong { font-size: .7rem; }
+.quick-plan-actions button, .node-purchase-button { font-size: .63rem; }
+.edit-setup-link, .node-editor > span { font-size: .64rem; }
+.node-editor button { font-size: .64rem; font-weight: 750; }
+.node-unlock-note { font-size: .62rem; line-height: 1.45; }
+.upgrade-main strong { font-size: .76rem; }
+.upgrade-main span { font-size: .64rem; line-height: 1.35; }
+.upgrade-main em { font-size: .625rem; line-height: 1.35; }
+.level > span, .cost > span, .bonus > span, .efficiency > span { font-size: .625rem; }
+.level strong, .cost strong, .bonus strong, .efficiency strong { font-size: .7rem; }
+.rank { font-size: .64rem; }
+.resource-icon { font-size: .57rem; }
+.add-button span { font-size: .62rem; }
+.empty-plan p { font-size: .66rem; }
+.plan-items article > i { font-size: .58rem; }
+.plan-items span strong { font-size: .69rem; }
+.plan-items span small { font-size: .625rem; line-height: 1.35; }
+.plan-quantity b, .plan-total span, .plan-total small { font-size: .62rem; }
+.budget-advisor-heading > div > p:last-child { font-size: .66rem; line-height: 1.45; }
+.budget-status { font-size: .62rem; }
+.budget-overview span, .surplus-heading span { font-size: .625rem; }
+.budget-overview small { font-size: .625rem; line-height: 1.4; }
+.surplus-heading p { font-size: .64rem; line-height: 1.4; }
+.suggestion-list article > i { font-size: .57rem; }
+.suggestion-list article > span strong { font-size: .68rem; }
+.suggestion-list article > span small { font-size: .625rem; line-height: 1.35; }
+.suggestion-list article > div small { font-size: .6rem; }
+.suggestion-list article > div strong { font-size: .64rem; }
+.node-suggestion-badge { font-size: .59rem; }
+.budget-message strong { font-size: .69rem; }
+.budget-message p { font-size: .63rem; line-height: 1.45; }
+.gem-setup-title small, .setup-upgrade-group summary small { font-size: .625rem; }
+.setup-upgrade-group summary strong { font-size: .72rem; }
+.setup-upgrade-group article > span strong { font-size: .67rem; }
+.setup-upgrade-group article > span small { font-size: .625rem; }
+.orb-total-card small, .milestone-grid span, .milestone-grid small, .stepper-control em, .weight-card div small { font-size: .625rem; }
+.stepper-field > span { font-size: .66rem; }
+.site-footer strong { font-size: .7rem; }
+.site-footer p, .footer-links { font-size: .64rem; line-height: 1.55; }
 
 
 @media (max-width: 1120px) {

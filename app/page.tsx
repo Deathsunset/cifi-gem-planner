@@ -74,14 +74,32 @@ const RESOURCE_META: Record<Resource, { label: string; short: string; color: str
 };
 
 const GEM_META: Record<GemName, { accent: string; defaultProgress: GemProgress }> = {
-  Creation: { accent: "#ff9d53", defaultProgress: { level: 4, nodes: 4, maxNodes: 6 } },
-  Evolution: { accent: "#78e1a1", defaultProgress: { level: 0, nodes: 0, maxNodes: 6 } },
+  Creation: { accent: "#ff9d53", defaultProgress: { level: 4, nodes: 3, maxNodes: 6 } },
+  Evolution: { accent: "#78e1a1", defaultProgress: { level: 0, nodes: 0, maxNodes: 3 } },
   Temporal: { accent: "#ff5eb8", defaultProgress: { level: 3, nodes: 3, maxNodes: 6 } },
-  Exodus: { accent: "#d9d8ff", defaultProgress: { level: 4, nodes: 4, maxNodes: 6 } },
+  Exodus: { accent: "#d9d8ff", defaultProgress: { level: 4, nodes: 0, maxNodes: 6 } },
   Attraction: { accent: "#74dfff", defaultProgress: { level: 3, nodes: 3, maxNodes: 6 } },
-  Innovation: { accent: "#d7e65b", defaultProgress: { level: 2, nodes: 2, maxNodes: 6 } },
-  Power: { accent: "#9482ff", defaultProgress: { level: 2, nodes: 2, maxNodes: 6 } },
+  Innovation: { accent: "#d7e65b", defaultProgress: { level: 2, nodes: 3, maxNodes: 6 } },
+  Power: { accent: "#9482ff", defaultProgress: { level: 2, nodes: 3, maxNodes: 6 } },
 };
+
+const BASE_NODE_EXODUS_LEVEL = 3;
+const EXTRA_NODE_EXODUS_LEVEL = 5;
+const EVOLUTION_NODE_LEVEL = 1;
+
+function availableNodeLimit(gem: GemName, exodusLevel: number, gemLevel: number) {
+  if (gem === "Exodus") return exodusLevel >= EXTRA_NODE_EXODUS_LEVEL ? GEM_META.Exodus.defaultProgress.maxNodes : 0;
+  if (gem === "Evolution") return gemLevel >= EVOLUTION_NODE_LEVEL ? GEM_META.Evolution.defaultProgress.maxNodes : 0;
+  if (exodusLevel >= EXTRA_NODE_EXODUS_LEVEL) return GEM_META[gem].defaultProgress.maxNodes;
+  return exodusLevel >= BASE_NODE_EXODUS_LEVEL ? 3 : 0;
+}
+
+function nodeLockReason(gem: GemName, nodeIndex: number, exodusLevel: number, gemLevel: number) {
+  if (nodeIndex <= availableNodeLimit(gem, exodusLevel, gemLevel)) return "";
+  if (gem === "Evolution") return "Requires Evolution Gem level 1";
+  if (gem === "Exodus" || nodeIndex > 3) return "Requires Exodus Gem level 5";
+  return "Requires Exodus Gem level 3";
+}
 
 const DEFAULT_GEM_PROGRESS = Object.fromEntries(
   GEM_NAMES.map((gem) => [gem, { ...GEM_META[gem].defaultProgress }]),
@@ -223,15 +241,23 @@ function Stepper({ label, value, step = 1, max, onChange, suffix }: { label: str
   );
 }
 
-function GemSetupCard({ gem, progress, maxLevel, plannedNodes, nodes, onLevel, onNodes, onAddNode, onRemoveNode }: { gem: GemName; progress: GemProgress; maxLevel: number; plannedNodes: number; nodes: GemNode[]; onLevel: (level: number) => void; onNodes: (nodes: number) => void; onAddNode: () => void; onRemoveNode: () => void }) {
-  const plannedEnd = Math.min(progress.maxNodes, progress.nodes + plannedNodes);
-  const nextNode = nodes.find((node) => node.index === plannedEnd + 1);
+function GemSetupCard({ gem, progress, maxLevel, plannedNodes, nodes, currentExodusLevel, plannedExodusLevel, plannedGemLevel, ownedNodeLimit, plannedNodeLimit, onLevel, onNodes, onAddNode, onRemoveNode }: { gem: GemName; progress: GemProgress; maxLevel: number; plannedNodes: number; nodes: GemNode[]; currentExodusLevel: number; plannedExodusLevel: number; plannedGemLevel: number; ownedNodeLimit: number; plannedNodeLimit: number; onLevel: (level: number) => void; onNodes: (nodes: number) => void; onAddNode: () => void; onRemoveNode: () => void }) {
+  const plannedEnd = Math.min(plannedNodeLimit, progress.nodes + plannedNodes);
+  const nextNode = nodes.find((node) => node.index === plannedEnd + 1 && node.index <= plannedNodeLimit);
+  const blockedNextNode = nodes.find((node) => node.index === plannedEnd + 1);
+  const blockedReason = blockedNextNode ? nodeLockReason(gem, blockedNextNode.index, plannedExodusLevel, plannedGemLevel) : "";
   return (
     <article className="gem-setup-card panel" style={{ "--gem": GEM_META[gem].accent } as React.CSSProperties}>
-      <div className="gem-setup-title"><GemArtwork gem={gem} /><div><strong>{gem}</strong><small>{progress.nodes}{plannedNodes ? `→${plannedEnd}` : ""}/{progress.maxNodes} nodes</small></div></div>
+      <div className="gem-setup-title"><GemArtwork gem={gem} /><div><strong>{gem}</strong><small>{progress.nodes}{plannedNodes ? `→${plannedEnd}` : ""}/{nodes.length} nodes</small></div></div>
       <Stepper label="Gem level" value={progress.level} max={maxLevel} onChange={onLevel} />
-      <div className="node-editor"><span>Owned & planned nodes</span><div>{nodes.map((node) => <button key={node.id} type="button" title={`Node ${node.index}: ◈ ${formatNumber(node.cost)}`} className={node.index <= progress.nodes ? "active" : node.index <= plannedEnd ? "planned" : ""} onClick={() => onNodes(progress.nodes === node.index ? node.index - 1 : node.index)}>{node.index}</button>)}</div></div>
-      <div className="node-purchase-actions"><button type="button" disabled={!plannedNodes} onClick={onRemoveNode}>−</button><button type="button" className="node-purchase-button" disabled={!nextNode} onClick={onAddNode}>{nextNode ? `Add node ${nextNode.index} · ◈ ${formatNumber(nextNode.cost)}` : "All nodes owned"}</button></div>
+      <div className="node-editor"><span>Owned & planned nodes</span><div>{nodes.map((node) => {
+        const locked = node.index > ownedNodeLimit;
+        const state = node.index <= progress.nodes ? "active" : node.index <= plannedEnd ? "planned" : locked ? "locked" : "";
+        const reason = nodeLockReason(gem, node.index, currentExodusLevel, progress.level);
+        return <button key={node.id} type="button" disabled={locked} title={reason || `Node ${node.index}: ◈ ${formatNumber(node.cost)}`} className={state} onClick={() => onNodes(progress.nodes === node.index ? node.index - 1 : node.index)}>{node.index}</button>;
+      })}</div></div>
+      {blockedReason && <p className="node-unlock-note">{blockedReason}.</p>}
+      <div className="node-purchase-actions"><button type="button" disabled={!plannedNodes} onClick={onRemoveNode}>−</button><button type="button" className="node-purchase-button" disabled={!nextNode} onClick={onAddNode}>{nextNode ? `Add node ${nextNode.index} · ◈ ${formatNumber(nextNode.cost)}` : blockedReason || "All nodes owned"}</button></div>
     </article>
   );
 }
@@ -263,33 +289,61 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) { setHydrated(true); return; }
-    try {
-      const parsed = JSON.parse(stored);
-      if (parsed.profile) setProfile(parsed.profile);
-      if (parsed.weights) setWeights(parsed.weights);
-      if (parsed.plan) setPlan(parsed.plan);
-      if (parsed.nodePlan) setNodePlan(parsed.nodePlan);
-      if (parsed.gemProgress) setGemProgress({ ...DEFAULT_GEM_PROGRESS, ...parsed.gemProgress });
-      if (parsed.upgradeLevels) setUpgradeLevels(parsed.upgradeLevels);
-    } catch { window.localStorage.removeItem(STORAGE_KEY); }
-    finally { setHydrated(true); }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (!stored) { setHydrated(true); return; }
+      try {
+        const parsed = JSON.parse(stored);
+        const storedPlan = (parsed.plan ?? {}) as Record<string, number>;
+        const storedProgress = (parsed.gemProgress ?? {}) as Partial<Record<GemName, Partial<GemProgress>>>;
+        const storedExodusLevel = Math.max(0, Number(storedProgress.Exodus?.level ?? DEFAULT_GEM_PROGRESS.Exodus.level));
+        const normalizedProgress = Object.fromEntries(GEM_NAMES.map((gem) => {
+          const saved = storedProgress[gem] ?? {};
+          const level = Math.max(0, Number(saved.level ?? DEFAULT_GEM_PROGRESS[gem].level));
+          const maxNodes = DEFAULT_GEM_PROGRESS[gem].maxNodes;
+          const nodes = Math.min(availableNodeLimit(gem, storedExodusLevel, level), Math.max(0, Number(saved.nodes ?? DEFAULT_GEM_PROGRESS[gem].nodes)));
+          return [gem, { level, nodes, maxNodes }];
+        })) as Record<GemName, GemProgress>;
+        const storedPlannedGemLevels = Object.fromEntries(GEM_NAMES.map((gem) => {
+          const maxLevel = SOURCE_GEM_DATA[`${gem.toLowerCase()}-quality`]?.costs.length ?? normalizedProgress[gem].level;
+          return [gem, Math.min(maxLevel, normalizedProgress[gem].level + Math.max(0, Number(storedPlan[`${gem.toLowerCase()}-quality`] ?? 0)))];
+        })) as Record<GemName, number>;
+        const storedNodePlan = (parsed.nodePlan ?? {}) as Partial<Record<GemName, number>>;
+        const normalizedNodePlan = Object.fromEntries(GEM_NAMES.flatMap((gem) => {
+          const quantity = Math.min(
+            Math.max(0, availableNodeLimit(gem, storedPlannedGemLevels.Exodus, storedPlannedGemLevels[gem]) - normalizedProgress[gem].nodes),
+            Math.max(0, Number(storedNodePlan[gem] ?? 0)),
+          );
+          return quantity > 0 ? [[gem, quantity]] : [];
+        })) as Partial<Record<GemName, number>>;
+        if (parsed.profile) setProfile(parsed.profile);
+        if (parsed.weights) setWeights(parsed.weights);
+        setPlan(storedPlan);
+        setNodePlan(normalizedNodePlan);
+        setGemProgress(normalizedProgress);
+        if (parsed.upgradeLevels) setUpgradeLevels(parsed.upgradeLevels);
+      } catch { window.localStorage.removeItem(STORAGE_KEY); }
+      finally { setHydrated(true); }
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ profile, weights, plan, nodePlan, gemProgress, upgradeLevels }));
-    setNotice("Saved locally");
   }, [hydrated, profile, weights, plan, nodePlan, gemProgress, upgradeLevels]);
+
+  const plannedGemLevels = useMemo(() => Object.fromEntries(GEM_NAMES.map((gem) => [gem, Math.min(
+    UPGRADES.find((upgrade) => upgrade.gem === gem && upgrade.isGemLevel)?.max ?? 12,
+    gemProgress[gem].level + (plan[`${gem.toLowerCase()}-quality`] ?? 0),
+  )])) as Record<GemName, number>, [gemProgress, plan]);
+  const plannedExodusLevel = plannedGemLevels.Exodus;
 
   const catalog = useMemo(() => {
     const defaultProgression = 1 + DEFAULT_PROFILE.research / 3000 + DEFAULT_PROFILE.meltdown / 10;
     const progression = (1 + profile.research / 3000 + profile.meltdown / 10) / defaultProgression;
-    const plannedGemLevels = Object.fromEntries(GEM_NAMES.map((gem) => [gem, Math.min(
-      UPGRADES.find((upgrade) => upgrade.gem === gem && upgrade.isGemLevel)?.max ?? 12,
-      gemProgress[gem].level + (plan[`${gem.toLowerCase()}-quality`] ?? 0),
-    )])) as Record<GemName, number>;
     return UPGRADES.map((upgrade) => {
       const storedLevel = upgrade.isGemLevel ? gemProgress[upgrade.gem].level : (upgradeLevels[upgrade.id] ?? upgrade.defaultLevel);
       const current = Math.min(upgrade.max, Math.max(0, storedLevel));
@@ -305,7 +359,7 @@ export default function Home() {
       const score = baseScore * weightFactor * costFactor * progression;
       return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, unlocked, unlockedInPlan, score, maxed: current >= upgrade.max };
     });
-  }, [gemProgress, plan, profile, upgradeLevels, weights]);
+  }, [gemProgress, plan, plannedGemLevels, profile, upgradeLevels, weights]);
 
   const ranked = useMemo(() => catalog
     .filter((upgrade) => filter === "all" || upgrade.resource === filter)
@@ -316,7 +370,8 @@ export default function Home() {
   const plannedItems = Object.keys(plan).map((id) => catalog.find((upgrade) => upgrade.id === id)).filter((upgrade) => upgrade && upgrade.plannedQuantity > 0) as (typeof catalog);
   const plannedNodeItems = GEM_NAMES.map((gem) => {
     const current = gemProgress[gem].nodes;
-    const quantity = Math.min(nodePlan[gem] ?? 0, Math.max(0, gemProgress[gem].maxNodes - current));
+    const nodeLimit = availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem]);
+    const quantity = Math.min(nodePlan[gem] ?? 0, Math.max(0, nodeLimit - current));
     const nodes = GEM_NODES.filter((node) => node.gem === gem && node.index > current && node.index <= current + quantity);
     return { gem, current, quantity, plannedEnd: current + quantity, nodes, cost: nodes.reduce((sum, node) => sum + node.cost, 0) };
   }).filter((item) => item.quantity > 0);
@@ -359,6 +414,7 @@ export default function Home() {
     const priorityGem = initialGemLevel?.gem ?? (selectedGem === "all" ? undefined : selectedGem);
     const affordableNodes = GEM_NAMES.flatMap((gem) => {
       const fromLevel = simulatedNodes[gem];
+      if (fromLevel >= availableNodeLimit(gem, simulatedGemLevels.Exodus, simulatedGemLevels[gem])) return [];
       const node = GEM_NODES.find((candidate) => candidate.gem === gem && candidate.index === fromLevel + 1);
       if (!node || node.cost > remaining) return [];
       return [{ gem, node, fromLevel }];
@@ -392,8 +448,11 @@ export default function Home() {
   const selectedProgress = selectedGem === "all" ? null : gemProgress[selectedGem];
   const selectedGemUpgrade = selectedGem === "all" ? null : catalog.find((upgrade) => upgrade.gem === selectedGem && upgrade.isGemLevel);
   const selectedPlannedNodes = selectedGem === "all" ? 0 : (nodePlan[selectedGem] ?? 0);
-  const selectedPlannedNodeEnd = selectedProgress ? Math.min(selectedProgress.maxNodes, selectedProgress.nodes + selectedPlannedNodes) : 0;
-  const selectedNextNode = selectedGem === "all" ? undefined : GEM_NODES.find((node) => node.gem === selectedGem && node.index === selectedPlannedNodeEnd + 1);
+  const selectedNodeLimit = selectedGem === "all" ? 0 : availableNodeLimit(selectedGem, plannedExodusLevel, plannedGemLevels[selectedGem]);
+  const selectedPlannedNodeEnd = selectedProgress ? Math.min(selectedNodeLimit, selectedProgress.nodes + selectedPlannedNodes) : 0;
+  const selectedNextNode = selectedGem === "all" ? undefined : GEM_NODES.find((node) => node.gem === selectedGem && node.index === selectedPlannedNodeEnd + 1 && node.index <= selectedNodeLimit);
+  const selectedBlockedNode = selectedGem === "all" ? undefined : GEM_NODES.find((node) => node.gem === selectedGem && node.index === selectedPlannedNodeEnd + 1 && node.index <= gemProgress[selectedGem].maxNodes);
+  const selectedNodeBlockReason = selectedGem === "all" || !selectedBlockedNode ? "" : nodeLockReason(selectedGem, selectedBlockedNode.index, plannedExodusLevel, plannedGemLevels[selectedGem]);
 
   function updateProfile<K extends keyof Profile>(key: K, value: Profile[K]) { setProfile((current) => ({ ...current, [key]: value })); }
   function updateGem(gem: GemName, patch: Partial<GemProgress>) { setGemProgress((current) => ({ ...current, [gem]: { ...current[gem], ...patch } })); }
@@ -408,6 +467,10 @@ export default function Home() {
   }
   function addAllRecommendations() {
     if (!budgetRecommendations.items.length) return;
+    const recommendationGemLevels = { ...plannedGemLevels };
+    budgetRecommendations.items.filter((item) => item.kind === "upgrade" && item.id.endsWith("-quality")).forEach((item) => {
+      recommendationGemLevels[item.gem] += 1;
+    });
     setPlan((current) => {
       const next = { ...current };
       budgetRecommendations.items.filter((item) => item.kind === "upgrade").forEach((item) => { next[item.id] = (next[item.id] ?? 0) + 1; });
@@ -415,23 +478,47 @@ export default function Home() {
     });
     setNodePlan((current) => {
       const next = { ...current };
-      budgetRecommendations.items.filter((item) => item.kind === "node").forEach((item) => { next[item.gem] = (next[item.gem] ?? 0) + 1; });
+      budgetRecommendations.items.filter((item) => item.kind === "node").forEach((item) => {
+        const allowed = availableNodeLimit(item.gem, recommendationGemLevels.Exodus, recommendationGemLevels[item.gem]);
+        const planned = next[item.gem] ?? 0;
+        if (gemProgress[item.gem].nodes + planned < allowed) next[item.gem] = planned + 1;
+      });
       return next;
     });
     setNotice(`${budgetRecommendations.items.length} recommended purchases added`);
   }
   function removePlanIncrement(id: string, all = false) {
+    const qualityGem = GEM_NAMES.find((gem) => id === `${gem.toLowerCase()}-quality`);
+    if (qualityGem) {
+      const currentQuantity = plan[id] ?? 0;
+      const nextQuantity = all || currentQuantity <= 1 ? 0 : currentQuantity - 1;
+      const nextLevels = { ...plannedGemLevels, [qualityGem]: gemProgress[qualityGem].level + nextQuantity };
+      clampNodePlanForLevels(nextLevels);
+    }
     setPlan((current) => {
       const next = { ...current };
       if (all || (next[id] ?? 0) <= 1) delete next[id]; else next[id] -= 1;
       return next;
     });
   }
+  function clampNodePlanForLevels(levels: Record<GemName, number>) {
+    setNodePlan((current) => {
+      const next: Partial<Record<GemName, number>> = {};
+      GEM_NAMES.forEach((gem) => {
+        const allowed = Math.max(0, availableNodeLimit(gem, levels.Exodus, levels[gem]) - gemProgress[gem].nodes);
+        const quantity = Math.min(allowed, Math.max(0, current[gem] ?? 0));
+        if (quantity > 0) next[gem] = quantity;
+      });
+      return next;
+    });
+  }
   function addNodeToPlan(gem: GemName) {
-    const current = gemProgress[gem].nodes;
-    const planned = nodePlan[gem] ?? 0;
-    if (current + planned >= gemProgress[gem].maxNodes) return;
-    setNodePlan((value) => ({ ...value, [gem]: planned + 1 }));
+    const nodeLimit = availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem]);
+    setNodePlan((current) => {
+      const planned = current[gem] ?? 0;
+      if (gemProgress[gem].nodes + planned >= nodeLimit) return current;
+      return { ...current, [gem]: planned + 1 };
+    });
   }
   function removeNodeFromPlan(gem: GemName, all = false) {
     setNodePlan((current) => {
@@ -441,14 +528,31 @@ export default function Home() {
     });
   }
   function setOwnedNodes(gem: GemName, nodes: number) {
-    updateGem(gem, { nodes });
+    const nodeLimit = availableNodeLimit(gem, gemProgress.Exodus.level, gemProgress[gem].level);
+    updateGem(gem, { nodes: Math.min(nodeLimit, Math.max(0, nodes)) });
     removeNodeFromPlan(gem, true);
+  }
+  function changeGemSetupLevel(gem: GemName, level: number) {
+    setGemProgress((current) => {
+      const next = { ...current, [gem]: { ...current[gem], level } };
+      const currentLevels = Object.fromEntries(GEM_NAMES.map((name) => [name, next[name].level])) as Record<GemName, number>;
+      GEM_NAMES.forEach((name) => {
+        next[name] = { ...next[name], nodes: Math.min(next[name].nodes, availableNodeLimit(name, currentLevels.Exodus, currentLevels[name])) };
+      });
+      return next;
+    });
+    setPlan((current) => {
+      const next = { ...current };
+      delete next[`${gem.toLowerCase()}-quality`];
+      return next;
+    });
+    clampNodePlanForLevels({ ...plannedGemLevels, [gem]: level });
   }
   function changeUpgradeLevel(upgrade: Upgrade, delta: number) {
     const next = Math.min(upgrade.max, Math.max(0, upgrade.current + delta));
-    if (upgrade.isGemLevel) updateGem(upgrade.gem, { level: next });
+    if (upgrade.isGemLevel) changeGemSetupLevel(upgrade.gem, next);
     else setUpgradeLevels((current) => ({ ...current, [upgrade.id]: next }));
-    removePlanIncrement(upgrade.id, true);
+    if (!upgrade.isGemLevel) removePlanIncrement(upgrade.id, true);
   }
   function reset() {
     setProfile(DEFAULT_PROFILE); setWeights(DEFAULT_WEIGHTS); setPlan({}); setNodePlan({}); setGemProgress(DEFAULT_GEM_PROGRESS); setUpgradeLevels({});
@@ -491,7 +595,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.3</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.6</span></p></div>
       </aside>
 
       <section className="workspace">
@@ -509,14 +613,14 @@ export default function Home() {
 
             <section className="gem-network" aria-label="Gem network">
               <button className={`all-gems ${selectedGem === "all" ? "active" : ""}`} onClick={() => setSelectedGem("all")}><span>ALL</span><i><strong>All gems</strong><small>{UPGRADES.length} upgrades</small></i></button>
-              {GEM_NAMES.map((gem) => { const progress = gemProgress[gem]; const plannedNodes = nodePlan[gem] ?? 0; return <button className={selectedGem === gem ? "active" : ""} key={gem} onClick={() => setSelectedGem((current) => current === gem ? "all" : gem)}><GemArtwork gem={gem} /><i><strong>{gem}</strong><small>Lv {progress.level} · {progress.nodes}{plannedNodes ? `→${Math.min(progress.maxNodes, progress.nodes + plannedNodes)}` : ""}/{progress.maxNodes} nodes</small></i></button>; })}
+              {GEM_NAMES.map((gem) => { const progress = gemProgress[gem]; const plannedNodes = nodePlan[gem] ?? 0; const nodeLimit = availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem]); return <button className={selectedGem === gem ? "active" : ""} key={gem} onClick={() => setSelectedGem((current) => current === gem ? "all" : gem)}><GemArtwork gem={gem} /><i><strong>{gem}</strong><small>Lv {progress.level} · {progress.nodes}{plannedNodes ? `→${Math.min(nodeLimit, progress.nodes + plannedNodes)}` : ""}/{progress.maxNodes} nodes</small></i></button>; })}
             </section>
 
             {selectedGem !== "all" && selectedProgress && <section className="quick-gem-editor panel" style={{ "--gem": GEM_META[selectedGem].accent } as React.CSSProperties}>
               <div className="quick-gem-title"><GemArtwork gem={selectedGem} /><div><span>PLANNING FOR</span><strong>{selectedGem}</strong></div></div>
               <div className="gem-state-summary"><span>CURRENT SETUP</span><strong>Lv {selectedProgress.level} · {selectedProgress.nodes}/{selectedProgress.maxNodes} nodes</strong></div>
               <div className="gem-state-summary planned"><span>AFTER PLAN</span><strong>Lv {selectedGemUpgrade?.plannedLevel ?? selectedProgress.level} · {selectedPlannedNodeEnd}/{selectedProgress.maxNodes} nodes</strong></div>
-              <div className="quick-plan-actions"><button disabled={!selectedGemUpgrade || selectedGemUpgrade.current + selectedGemUpgrade.plannedQuantity >= selectedGemUpgrade.max} onClick={() => selectedGemUpgrade && addPlanIncrement(selectedGemUpgrade.id)}>{selectedGemUpgrade && Number.isFinite(selectedGemUpgrade.nextCost) ? `+ Gem level · ◈ ${formatNumber(selectedGemUpgrade.nextCost)}` : "Gem level maxed"}</button><button disabled={!selectedNextNode} onClick={() => addNodeToPlan(selectedGem)}>{selectedNextNode ? `+ Node ${selectedNextNode.index} · ◈ ${formatNumber(selectedNextNode.cost)}` : "All nodes owned"}</button></div>
+              <div className="quick-plan-actions"><button disabled={!selectedGemUpgrade || selectedGemUpgrade.current + selectedGemUpgrade.plannedQuantity >= selectedGemUpgrade.max} onClick={() => selectedGemUpgrade && addPlanIncrement(selectedGemUpgrade.id)}>{selectedGemUpgrade && Number.isFinite(selectedGemUpgrade.nextCost) ? `+ Gem level · ◈ ${formatNumber(selectedGemUpgrade.nextCost)}` : "Gem level maxed"}</button><button disabled={!selectedNextNode} onClick={() => addNodeToPlan(selectedGem)}>{selectedNextNode ? `+ Node ${selectedNextNode.index} · ◈ ${formatNumber(selectedNextNode.cost)}` : selectedNodeBlockReason || "All nodes owned"}</button></div>
               <button className="edit-setup-link" onClick={() => setView("profile")}>Edit current setup →</button>
             </section>}
 
@@ -546,7 +650,7 @@ export default function Home() {
 
               <aside className="plan-panel panel"><div className="panel-heading"><div><p className="eyebrow">PURCHASE PLAN</p><h2>Next upgrades</h2></div><span>{plannedCount}</span></div>{plannedCount ? <div className="plan-items">
                 {plannedItems.map((upgrade, index) => <article key={upgrade.id}><i>{index + 1}</i><span><strong>{upgrade.name}</strong><small>{upgrade.gem} · {upgrade.current}→{upgrade.plannedLevel} · ◈ {formatNumber(upgrade.planCost)}</small></span><div className="plan-quantity"><button onClick={() => removePlanIncrement(upgrade.id)} aria-label={`Remove one level of ${upgrade.name}`}>−</button><b>{upgrade.plannedQuantity}</b><button disabled={upgrade.current + upgrade.plannedQuantity >= upgrade.max} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>+</button></div><button className="remove-plan" onClick={() => removePlanIncrement(upgrade.id, true)} aria-label={`Remove ${upgrade.name} from plan`}>×</button></article>)}
-                {plannedNodeItems.map((item, index) => <article className="node-plan-item" key={`node-${item.gem}`}><i>{plannedItems.length + index + 1}</i><span><strong>{item.gem} Gem Nodes</strong><small>Nodes {item.current}→{item.plannedEnd} · ◈ {formatNumber(item.cost)}</small></span><div className="plan-quantity"><button onClick={() => removeNodeFromPlan(item.gem)} aria-label={`Remove one ${item.gem} node`}>−</button><b>{item.quantity}</b><button disabled={item.plannedEnd >= gemProgress[item.gem].maxNodes} onClick={() => addNodeToPlan(item.gem)} aria-label={`Add one ${item.gem} node`}>+</button></div><button className="remove-plan" onClick={() => removeNodeFromPlan(item.gem, true)} aria-label={`Remove ${item.gem} nodes from plan`}>×</button></article>)}
+                {plannedNodeItems.map((item, index) => <article className="node-plan-item" key={`node-${item.gem}`}><i>{plannedItems.length + index + 1}</i><span><strong>{item.gem} Gem Nodes</strong><small>Nodes {item.current}→{item.plannedEnd} · ◈ {formatNumber(item.cost)}</small></span><div className="plan-quantity"><button onClick={() => removeNodeFromPlan(item.gem)} aria-label={`Remove one ${item.gem} node`}>−</button><b>{item.quantity}</b><button disabled={item.plannedEnd >= availableNodeLimit(item.gem, plannedExodusLevel, plannedGemLevels[item.gem])} onClick={() => addNodeToPlan(item.gem)} aria-label={`Add one ${item.gem} node`}>+</button></div><button className="remove-plan" onClick={() => removeNodeFromPlan(item.gem, true)} aria-label={`Remove ${item.gem} nodes from plan`}>×</button></article>)}
               </div> : <div className="empty-plan"><div>＋</div><strong>Your plan is empty</strong><p>Add Gem levels, upgrades or nodes to build your purchase plan.</p></div>}<div className="plan-total"><span>Total cost · {plannedCount} increments</span><strong>◈ {formatNumber(totalCost)}</strong><small>{availableOrbs >= totalCost ? "Available now" : `${formatNumber(totalCost - availableOrbs)} more orbs needed`}</small></div><div className="plan-actions"><button className="ghost-button" disabled={!plannedCount} onClick={copyPlan}>Copy</button><button className="primary-button" disabled={!plannedCount || totalCost > availableOrbs || !Number.isFinite(totalCost)} onClick={applyPlan}>Apply purchases</button></div></aside>
             </section>
 
@@ -568,7 +672,7 @@ export default function Home() {
           </>}
 
           {view === "profile" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">GEM SETUP</p><h1>Your progression</h1><p>Enter the values you can see in your game. Gem availability and recommendations update immediately.</p></div><button className="primary-button" onClick={() => setView("planner")}>Back to planner</button></div>
-            <h2 className="subsection-title">Gem levels & nodes</h2><div className="gem-setup-grid">{GEM_NAMES.map((gem) => <GemSetupCard key={gem} gem={gem} progress={gemProgress[gem]} maxLevel={UPGRADES.find((upgrade) => upgrade.gem === gem && upgrade.isGemLevel)?.max ?? 5} plannedNodes={nodePlan[gem] ?? 0} nodes={GEM_NODES.filter((node) => node.gem === gem)} onLevel={(level) => { updateGem(gem, { level }); removePlanIncrement(`${gem.toLowerCase()}-quality`, true); }} onNodes={(nodes) => setOwnedNodes(gem, nodes)} onAddNode={() => addNodeToPlan(gem)} onRemoveNode={() => removeNodeFromPlan(gem)} />)}</div>
+            <h2 className="subsection-title">Gem levels & nodes</h2><div className="gem-setup-grid">{GEM_NAMES.map((gem) => <GemSetupCard key={gem} gem={gem} progress={gemProgress[gem]} maxLevel={UPGRADES.find((upgrade) => upgrade.gem === gem && upgrade.isGemLevel)?.max ?? 5} plannedNodes={nodePlan[gem] ?? 0} nodes={GEM_NODES.filter((node) => node.gem === gem && node.index <= gemProgress[gem].maxNodes)} currentExodusLevel={gemProgress.Exodus.level} plannedExodusLevel={plannedExodusLevel} plannedGemLevel={plannedGemLevels[gem]} ownedNodeLimit={availableNodeLimit(gem, gemProgress.Exodus.level, gemProgress[gem].level)} plannedNodeLimit={availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem])} onLevel={(level) => changeGemSetupLevel(gem, level)} onNodes={(nodes) => setOwnedNodes(gem, nodes)} onAddNode={() => addNodeToPlan(gem)} onRemoveNode={() => removeNodeFromPlan(gem)} />)}</div>
             <h2 className="subsection-title progression-title">Current upgrade levels</h2><p className="setup-hint">This is the only place where current levels are edited. Planned levels remain separate in the Planner.</p><div className="setup-upgrade-groups">{GEM_NAMES.map((gem) => { const upgrades = catalog.filter((upgrade) => upgrade.gem === gem && !upgrade.isGemLevel); return <details className="setup-upgrade-group panel" key={gem}><summary><GemArtwork gem={gem} /><span><strong>{gem} upgrades</strong><small>{upgrades.length} current levels</small></span><b>⌄</b></summary><div>{upgrades.map((upgrade) => <article key={upgrade.id}><span><strong>{upgrade.name}</strong><small>Maximum level {upgrade.max}</small></span><div className="current-level-control"><button disabled={upgrade.current === 0} onClick={() => changeUpgradeLevel(upgrade, -1)}>−</button><b>{upgrade.current}</b><button disabled={upgrade.maxed} onClick={() => changeUpgradeLevel(upgrade, 1)}>+</button></div></article>)}</div></details>; })}</div>
             <h2 className="subsection-title progression-title">Global progression</h2><div className="setup-grid panel"><Stepper label="Loop resets" value={profile.lrs} step={100} onChange={(value) => updateProfile("lrs", value)} /><Stepper label="Tech upgrades" value={profile.tech} step={100} onChange={(value) => updateProfile("tech", value)} /><Stepper label="Research levels" value={profile.research} onChange={(value) => updateProfile("research", value)} /><Stepper label="Meltdown" value={profile.meltdown} step={0.01} onChange={(value) => updateProfile("meltdown", value)} /><Stepper label="Quantum tech" value={profile.quantum} onChange={(value) => updateProfile("quantum", value)} /><Stepper label="MK9 level" value={profile.mk9} onChange={(value) => updateProfile("mk9", value)} /><Stepper label="MK9 production" value={profile.production} step={100} onChange={(value) => updateProfile("production", value)} /><Stepper label="Orbs saved from previous TR" value={profile.savedOrbs} step={1e9} onChange={(value) => updateProfile("savedOrbs", value)} /><Stepper label="Orbs earned this TR" value={profile.currentTrOrbs} step={1e9} onChange={(value) => updateProfile("currentTrOrbs", value)} /><div className="orb-total-card"><span>Total available</span><strong>◈ {formatNumber(availableOrbs)}</strong><small>Saved + current TR</small></div></div>
             <h2 className="subsection-title progression-title">Optional starting points</h2><p className="setup-hint">Community examples only — these milestone names do not exist in the game. Applying one keeps your orb balance and you can adjust every value afterwards.</p><div className="milestone-grid">{PROGRESSION_EXAMPLES.map((example) => <button key={example.name} onClick={() => applyProgressionExample(example)}><span>{example.name}</span><strong>{example.description}</strong><small>{example.values.research} research · {formatNumber(example.values.tech)} tech · {example.values.meltdown} meltdown</small></button>)}</div>
