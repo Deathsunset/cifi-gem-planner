@@ -92,6 +92,11 @@ for gem, config in CONFIG.items():
         key = f"{gem.lower()}-{short_id}"
         formula = (main.get(f"K{row}") or {}).get("formula") or ""
         requirement = re.search(r"(?:Exo|Temp|Inno|Att|Cre|Power|Evo)Level\s*>=\s*(\d+)", formula, re.IGNORECASE)
+        required_level = int(requirement.group(1)) if requirement else 0
+        # Evolution uses a P69 + T69 formula instead of the named EvoLevel variable
+        # used by the other Gem sections. All four Evolution upgrades unlock at level 1.
+        if gem == "Evolution" and short_id != "quality":
+            required_level = 1
         curve = cost_curve(data_cells, pair_index)
         default_level = int(numeric(main.get(f"P{row}"), 0))
         sheet_rank_cost = numeric(main.get(f"AI{row}"), curve[default_level] if default_level < len(curve) else 0)
@@ -104,7 +109,7 @@ for gem, config in CONFIG.items():
             source_score *= sheet_rank_cost / reference_cost
         result[key] = {
             "defaultLevel": default_level,
-            "requiredLevel": int(requirement.group(1)) if requirement else 0,
+            "requiredLevel": required_level,
             "costs": curve,
             "sourceScore": source_score,
             "referenceCost": reference_cost,
