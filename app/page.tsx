@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import sourceGemData from "./source-gem-data.json";
 import sourceGemNodes from "./source-gem-nodes.json";
+import sourceUpgradeCaps from "./source-upgrade-caps.json";
 
 type Resource = "cells" | "mp" | "shards" | "rp" | "ap" | "mats";
 type View = "planner" | "profile" | "weights";
-const GEM_NAMES = ["Creation", "Evolution", "Temporal", "Exodus", "Attraction", "Innovation", "Power"] as const;
+const GEM_NAMES = ["Exodus", "Temporal", "Innovation", "Power", "Attraction", "Creation", "Evolution"] as const;
 type GemName = (typeof GEM_NAMES)[number];
 
 type Profile = {
@@ -56,6 +57,7 @@ type BudgetRecommendation = {
 };
 const SOURCE_GEM_DATA = sourceGemData as Record<string, SourceUpgradeData>;
 const GEM_NODES = sourceGemNodes as GemNode[];
+const UPGRADE_LEVEL_CAPS = sourceUpgradeCaps as Record<string, number>;
 
 const DEFAULT_PROFILE: Profile = { lrs: 6200, tech: 23000, research: 425, meltdown: 0.75, quantum: 75, mk9: 80, production: 0, savedOrbs: 1.63e9, currentTrOrbs: 1.15e12 };
 const PROGRESSION_EXAMPLES: Array<{ name: string; description: string; values: Omit<Profile, "savedOrbs" | "currentTrOrbs"> }> = [
@@ -145,7 +147,7 @@ function gemCatalog(gem: GemName, seeds: UpgradeSeed[]): Upgrade[] {
       sourceBonus: source?.bonusText ?? "",
       isGemLevel: id === "quality",
       gain,
-      max: costs.length,
+      max: UPGRADE_LEVEL_CAPS[upgradeId] ?? costs.length,
       requiredLevel: source?.requiredLevel ?? fallbackRequiredLevel,
     };
   });
@@ -322,6 +324,7 @@ export default function Home() {
   const [availability, setAvailability] = useState<"all" | "available" | "locked">("all");
   const [sort, setSort] = useState<"efficiency" | "cost">("efficiency");
   const [mobileNav, setMobileNav] = useState(false);
+  const [openUpgradeGroup, setOpenUpgradeGroup] = useState<GemName | null>("Exodus");
   const [notice, setNotice] = useState("Saved locally");
   const [hydrated, setHydrated] = useState(false);
 
@@ -399,6 +402,7 @@ export default function Home() {
       const plannedQuantity = upgrade.isGemLevel ? Math.min(requestedQuantity, Math.max(0, plannedGemLevels[upgrade.gem] - current)) : requestedQuantity;
       const nextCost = upgradeCostAt(upgrade, current + plannedQuantity);
       const planCost = upgradeCostRange(upgrade, current, plannedQuantity);
+      const priceAvailable = Number.isFinite(nextCost);
       const nextTargetLevel = current + plannedQuantity + 1;
       const currentLevelLockReason = upgrade.isGemLevel ? gemLevelLockReason(upgrade.gem, nextTargetLevel, currentGemLevels) : "";
       const plannedLevelLockReason = upgrade.isGemLevel ? gemLevelLockReason(upgrade.gem, nextTargetLevel, plannedGemLevels) : "";
@@ -408,8 +412,8 @@ export default function Home() {
       const baseScore = upgrade.sourceScore > 0 ? upgrade.sourceScore : fallbackScore;
       const weightFactor = weights[upgrade.resource] / DEFAULT_WEIGHTS[upgrade.resource];
       const costFactor = Number.isFinite(nextCost) && upgrade.referenceCost > 0 ? upgrade.referenceCost / nextCost : 1;
-      const score = baseScore * weightFactor * costFactor * progression;
-      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, unlocked, unlockedInPlan, score, maxed: current >= upgrade.max, levelLockReason: plannedLevelLockReason };
+      const score = priceAvailable ? baseScore * weightFactor * costFactor * progression : 0;
+      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, priceAvailable, unlocked, unlockedInPlan, score, maxed: current >= upgrade.max, levelLockReason: plannedLevelLockReason };
     });
   }, [currentGemLevels, gemProgress, plan, plannedGemLevels, profile, upgradeLevels, weights]);
 
@@ -532,7 +536,7 @@ export default function Home() {
   }
   function addPlanIncrement(id: string) {
     const upgrade = catalog.find((item) => item.id === id);
-    if (!upgrade || !upgrade.unlockedInPlan || upgrade.current + upgrade.plannedQuantity >= upgrade.max) return;
+    if (!upgrade || !upgrade.unlockedInPlan || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max) return;
     setPlan((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
   }
   function addAllRecommendations() {
@@ -613,8 +617,11 @@ export default function Home() {
     clampNodePlanForLevels(normalized.levels);
   }
   function changeUpgradeLevel(upgrade: Upgrade, delta: number) {
-    if (!upgrade.isGemLevel && delta > 0 && currentGemLevels[upgrade.gem] < upgrade.requiredLevel) return;
-    const next = Math.min(upgrade.max, Math.max(0, upgrade.current + delta));
+    setCurrentUpgradeLevel(upgrade, upgrade.current + delta);
+  }
+  function setCurrentUpgradeLevel(upgrade: Upgrade, value: number) {
+    if (!upgrade.isGemLevel && value > 0 && currentGemLevels[upgrade.gem] < upgrade.requiredLevel) return;
+    const next = Math.min(upgrade.max, Math.max(0, Math.trunc(value)));
     if (upgrade.isGemLevel) changeGemSetupLevel(upgrade.gem, next);
     else setUpgradeLevels((current) => ({ ...current, [upgrade.id]: next }));
     if (!upgrade.isGemLevel) removePlanIncrement(upgrade.id, true);
@@ -660,7 +667,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.8.1</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.9</span></p></div>
       </aside>
 
       <section className="workspace">
@@ -685,7 +692,7 @@ export default function Home() {
               <div className="quick-gem-title"><GemArtwork gem={selectedGem} /><div><span>PLANNING FOR</span><strong>{selectedGem}</strong></div></div>
               <div className="gem-state-summary"><span>CURRENT SETUP</span><strong>Lv {selectedProgress.level} · {selectedProgress.nodes}/{selectedProgress.maxNodes} nodes</strong></div>
               <div className="gem-state-summary planned"><span>AFTER PLAN</span><strong>Lv {selectedGemUpgrade?.plannedLevel ?? selectedProgress.level} · {selectedPlannedNodeEnd}/{selectedProgress.maxNodes} nodes</strong></div>
-              <div className="quick-plan-actions"><button disabled={!selectedGemUpgrade || !selectedGemUpgrade.unlockedInPlan || selectedGemUpgrade.current + selectedGemUpgrade.plannedQuantity >= selectedGemUpgrade.max} title={selectedGemUpgrade?.levelLockReason} onClick={() => selectedGemUpgrade && addPlanIncrement(selectedGemUpgrade.id)}>{selectedGemUpgrade?.levelLockReason ? selectedGemUpgrade.levelLockReason : selectedGemUpgrade && Number.isFinite(selectedGemUpgrade.nextCost) ? `+ Gem level · ◈ ${formatNumber(selectedGemUpgrade.nextCost)}` : "Gem level maxed"}</button><button disabled={!selectedNextNode} onClick={() => addNodeToPlan(selectedGem)}>{selectedNextNode ? `+ Node ${selectedNextNode.index} · ◈ ${formatNumber(selectedNextNode.cost)}` : selectedNodeBlockReason || "All nodes owned"}</button></div>
+              <div className="quick-plan-actions"><button disabled={!selectedGemUpgrade || !selectedGemUpgrade.unlockedInPlan || !selectedGemUpgrade.priceAvailable || selectedGemUpgrade.current + selectedGemUpgrade.plannedQuantity >= selectedGemUpgrade.max} title={selectedGemUpgrade?.levelLockReason || (!selectedGemUpgrade?.priceAvailable ? "Price unavailable in source data" : "")} onClick={() => selectedGemUpgrade && addPlanIncrement(selectedGemUpgrade.id)}>{selectedGemUpgrade?.levelLockReason ? selectedGemUpgrade.levelLockReason : selectedGemUpgrade?.maxed ? "Gem level maxed" : selectedGemUpgrade?.priceAvailable ? `+ Gem level · ◈ ${formatNumber(selectedGemUpgrade.nextCost)}` : "Price unavailable"}</button><button disabled={!selectedNextNode} onClick={() => addNodeToPlan(selectedGem)}>{selectedNextNode ? `+ Node ${selectedNextNode.index} · ◈ ${formatNumber(selectedNextNode.cost)}` : selectedNodeBlockReason || "All nodes owned"}</button></div>
               <button className="edit-setup-link" onClick={() => setView("profile")}>Edit current setup →</button>
             </section>}
 
@@ -703,18 +710,18 @@ export default function Home() {
                   return <article className={`upgrade-row ${selected ? "selected" : ""} ${locked ? "locked" : ""}`} key={upgrade.id}>
                     <span className="rank">#{index + 1}</span><div className="gem-badge" style={{ "--gem": upgrade.accent } as React.CSSProperties}><GemArtwork gem={upgrade.gem} /></div>
                     <div className="upgrade-main"><strong>{upgrade.name}</strong><span>{upgrade.gem} Gem · {upgrade.effect}</span>{!upgrade.unlocked && upgrade.unlockedInPlan && <em>Will unlock with the Gem levels in your plan</em>}{locked && <em>{upgrade.levelLockReason || `Unlocks at Gem level ${upgrade.requiredLevel}`}</em>}</div>
-                    <div className="level level-readonly"><span>{upgrade.isGemLevel ? "GEM LEVEL" : "LEVEL"}</span><strong>{upgrade.current}{selected ? ` → ${upgrade.plannedLevel}` : ""}</strong></div>
-                    <div className="cost"><span>{selected ? `PLAN · ${upgrade.plannedQuantity}` : "NEXT COST"}</span><strong>◈ {upgrade.maxed ? "MAX" : formatNumber(selected ? upgrade.planCost : upgrade.nextCost)}</strong></div>
+                    <div className="level level-readonly"><span>{upgrade.isGemLevel ? "GEM LEVEL" : "LEVEL"}</span><strong>{upgrade.current}{selected ? ` → ${upgrade.plannedLevel}` : ""} / {upgrade.max}</strong></div>
+                    <div className="cost"><span>{selected ? `PLAN · ${upgrade.plannedQuantity}` : "NEXT COST"}</span><strong>{upgrade.maxed ? "MAX" : upgrade.priceAvailable ? `◈ ${formatNumber(selected ? upgrade.planCost : upgrade.nextCost)}` : "Unavailable"}</strong></div>
                     <div className="bonus" title={upgrade.sourceBonus || upgrade.effect}><span>BONUS</span><strong>{upgrade.sourceBonus || (upgrade.isGemLevel ? "Unlocks bonuses" : upgrade.effect)}</strong></div>
                     <div className="efficiency"><span>SCORE</span><strong>{upgrade.score.toFixed(1)}</strong><div><i style={{ width: `${Math.min(100, upgrade.score * 2.2)}%` }} /></div></div>
-                    <ResourceIcon resource={upgrade.resource} /><button className="add-button" disabled={locked || upgrade.current + upgrade.plannedQuantity >= upgrade.max} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>{selected ? <span>+{upgrade.plannedQuantity}</span> : locked ? "×" : "+"}</button>
+                    <ResourceIcon resource={upgrade.resource} /><button className="add-button" disabled={locked || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={!upgrade.priceAvailable && !upgrade.maxed ? "Price unavailable in source data" : ""} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>{selected ? <span>+{upgrade.plannedQuantity}</span> : locked ? "×" : upgrade.priceAvailable ? "+" : "?"}</button>
                   </article>;
                 })}</div>
                 {!ranked.length && <div className="no-results"><strong>No upgrades match these filters.</strong><button onClick={() => { setFilter("all"); setAvailability("all"); setSelectedGem("all"); }}>Clear filters</button></div>}
               </div>
 
               <aside className="plan-panel panel"><div className="panel-heading"><div><p className="eyebrow">PURCHASE PLAN</p><h2>Next upgrades</h2></div><span>{plannedCount}</span></div>{plannedCount ? <div className="plan-items">
-                {plannedItems.map((upgrade, index) => <article key={upgrade.id}><i>{index + 1}</i><span><strong>{upgrade.name}</strong><small>{upgrade.gem} · {upgrade.current}→{upgrade.plannedLevel} · ◈ {formatNumber(upgrade.planCost)}</small></span><div className="plan-quantity"><button onClick={() => removePlanIncrement(upgrade.id)} aria-label={`Remove one level of ${upgrade.name}`}>−</button><b>{upgrade.plannedQuantity}</b><button disabled={!upgrade.unlockedInPlan || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={upgrade.levelLockReason} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>+</button></div><button className="remove-plan" onClick={() => removePlanIncrement(upgrade.id, true)} aria-label={`Remove ${upgrade.name} from plan`}>×</button></article>)}
+                {plannedItems.map((upgrade, index) => <article key={upgrade.id}><i>{index + 1}</i><span><strong>{upgrade.name}</strong><small>{upgrade.gem} · {upgrade.current}→{upgrade.plannedLevel}/{upgrade.max} · ◈ {formatNumber(upgrade.planCost)}</small></span><div className="plan-quantity"><button onClick={() => removePlanIncrement(upgrade.id)} aria-label={`Remove one level of ${upgrade.name}`}>−</button><b>{upgrade.plannedQuantity}</b><button disabled={!upgrade.unlockedInPlan || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={upgrade.levelLockReason || (!upgrade.priceAvailable ? "Price unavailable in source data" : "")} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>+</button></div><button className="remove-plan" onClick={() => removePlanIncrement(upgrade.id, true)} aria-label={`Remove ${upgrade.name} from plan`}>×</button></article>)}
                 {plannedNodeItems.map((item, index) => <article className="node-plan-item" key={`node-${item.gem}`}><i>{plannedItems.length + index + 1}</i><span><strong>{item.gem} Gem Nodes</strong><small>Nodes {item.current}→{item.plannedEnd} · ◈ {formatNumber(item.cost)}</small></span><div className="plan-quantity"><button onClick={() => removeNodeFromPlan(item.gem)} aria-label={`Remove one ${item.gem} node`}>−</button><b>{item.quantity}</b><button disabled={item.plannedEnd >= availableNodeLimit(item.gem, plannedExodusLevel, plannedGemLevels[item.gem])} onClick={() => addNodeToPlan(item.gem)} aria-label={`Add one ${item.gem} node`}>+</button></div><button className="remove-plan" onClick={() => removeNodeFromPlan(item.gem, true)} aria-label={`Remove ${item.gem} nodes from plan`}>×</button></article>)}
               </div> : <div className="empty-plan"><div>＋</div><strong>Your plan is empty</strong><p>Add Gem levels, upgrades or nodes to build your purchase plan.</p></div>}<div className="plan-total"><span>Total cost · {plannedCount} increments</span><strong>◈ {formatNumber(totalCost)}</strong><small>{availableOrbs >= totalCost ? "Available now" : `${formatNumber(totalCost - availableOrbs)} more orbs needed`}</small></div><div className="plan-actions"><button className="ghost-button" disabled={!plannedCount} onClick={copyPlan}>Copy</button><button className="primary-button" disabled={!plannedCount || totalCost > availableOrbs || !Number.isFinite(totalCost)} onClick={applyPlan}>Apply purchases</button></div></aside>
             </section>
@@ -743,7 +750,22 @@ export default function Home() {
               const levelLockReason = allowedMaxLevel < maxLevel ? gemLevelLockReason(gem, allowedMaxLevel + 1, currentGemLevels) : "";
               return <GemSetupCard key={gem} gem={gem} progress={gemProgress[gem]} maxLevel={maxLevel} allowedMaxLevel={allowedMaxLevel} levelLockReason={levelLockReason} plannedNodes={nodePlan[gem] ?? 0} nodes={GEM_NODES.filter((node) => node.gem === gem && node.index <= gemProgress[gem].maxNodes)} currentExodusLevel={gemProgress.Exodus.level} plannedExodusLevel={plannedExodusLevel} plannedGemLevel={plannedGemLevels[gem]} ownedNodeLimit={availableNodeLimit(gem, gemProgress.Exodus.level, gemProgress[gem].level)} plannedNodeLimit={availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem])} onLevel={(level) => changeGemSetupLevel(gem, level)} onNodes={(nodes) => setOwnedNodes(gem, nodes)} onAddNode={() => addNodeToPlan(gem)} onRemoveNode={() => removeNodeFromPlan(gem)} />;
             })}</div>
-            <h2 className="subsection-title progression-title">Current upgrade levels</h2><p className="setup-hint">This is the only place where current levels are edited. Planned levels remain separate in the Planner.</p><div className="setup-upgrade-groups">{GEM_NAMES.map((gem) => { const upgrades = catalog.filter((upgrade) => upgrade.gem === gem && !upgrade.isGemLevel); return <details className="setup-upgrade-group panel" key={gem}><summary><GemArtwork gem={gem} /><span><strong>{gem} upgrades</strong><small>{upgrades.length} current levels</small></span><b>⌄</b></summary><div>{upgrades.map((upgrade) => { const locked = currentGemLevels[gem] < upgrade.requiredLevel; return <article className={locked ? "locked" : ""} key={upgrade.id}><span><strong>{upgrade.name}</strong><small className={locked ? "current-upgrade-lock" : ""}>{locked ? `Requires ${gem} Gem level ${upgrade.requiredLevel}` : `Maximum level ${upgrade.max}`}</small></span><div className="current-level-control"><button disabled={upgrade.current === 0} onClick={() => changeUpgradeLevel(upgrade, -1)}>−</button><b>{upgrade.current}</b><button disabled={locked || upgrade.maxed} title={locked ? `Requires ${gem} Gem level ${upgrade.requiredLevel}` : ""} onClick={() => changeUpgradeLevel(upgrade, 1)}>+</button></div></article>; })}</div></details>; })}</div>
+            <h2 className="subsection-title progression-title">Current upgrade levels</h2><p className="setup-hint">This is the only place where current levels are edited. Planned levels remain separate in the Planner.</p>
+            <div className="setup-upgrade-groups">
+              {[GEM_NAMES.filter((_, index) => index % 2 === 0), GEM_NAMES.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => <div className="setup-upgrade-column" key={columnIndex}>
+                {column.map((gem) => {
+                  const upgrades = catalog.filter((upgrade) => upgrade.gem === gem && !upgrade.isGemLevel);
+                  const isOpen = openUpgradeGroup === gem;
+                  return <details className="setup-upgrade-group panel" key={gem} open={isOpen} style={{ "--gem-order": GEM_NAMES.indexOf(gem) } as React.CSSProperties}>
+                    <summary aria-expanded={isOpen} onClick={(event) => { event.preventDefault(); setOpenUpgradeGroup((current) => current === gem ? null : gem); }}><GemArtwork gem={gem} /><span><strong>{gem} upgrades</strong><small>{upgrades.length} Gem upgrades available</small></span><b>⌄</b></summary>
+                    <div>{upgrades.map((upgrade) => {
+                      const locked = currentGemLevels[gem] < upgrade.requiredLevel;
+                      return <article className={locked ? "locked" : ""} key={upgrade.id}><span><strong>{upgrade.name}</strong><small className={locked ? "current-upgrade-lock" : ""}>{locked ? `Requires ${gem} Gem level ${upgrade.requiredLevel}` : `Maximum level ${upgrade.max}`}</small></span><div className="current-level-control"><button disabled={upgrade.current === 0} onClick={() => changeUpgradeLevel(upgrade, -1)} aria-label={`Decrease ${upgrade.name}`}>−</button><input type="number" min={0} max={upgrade.max} inputMode="numeric" disabled={locked} value={upgrade.current} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { const normalized = Math.min(upgrade.max, Math.max(0, Math.trunc(Number(event.currentTarget.value) || 0))); event.currentTarget.value = String(normalized); setCurrentUpgradeLevel(upgrade, normalized); }} aria-label={`Current level of ${upgrade.name}`} /><button disabled={locked || upgrade.maxed} title={locked ? `Requires ${gem} Gem level ${upgrade.requiredLevel}` : ""} onClick={() => changeUpgradeLevel(upgrade, 1)} aria-label={`Increase ${upgrade.name}`}>+</button></div></article>;
+                    })}</div>
+                  </details>;
+                })}
+              </div>)}
+            </div>
             <h2 className="subsection-title progression-title">Global progression</h2><div className="setup-grid panel"><Stepper label="Loop resets" value={profile.lrs} step={100} onChange={(value) => updateProfile("lrs", value)} /><Stepper label="Tech upgrades" value={profile.tech} step={100} onChange={(value) => updateProfile("tech", value)} /><Stepper label="Research levels" value={profile.research} onChange={(value) => updateProfile("research", value)} /><Stepper label="Meltdown" value={profile.meltdown} step={0.01} onChange={(value) => updateProfile("meltdown", value)} /><Stepper label="Quantum tech" value={profile.quantum} onChange={(value) => updateProfile("quantum", value)} /><Stepper label="MK9 level" value={profile.mk9} onChange={(value) => updateProfile("mk9", value)} /><Stepper label="MK9 production" value={profile.production} step={100} onChange={(value) => updateProfile("production", value)} /><Stepper label="Orbs saved from previous TR" value={profile.savedOrbs} step={1e9} onChange={(value) => updateProfile("savedOrbs", value)} /><Stepper label="Orbs earned this TR" value={profile.currentTrOrbs} step={1e9} onChange={(value) => updateProfile("currentTrOrbs", value)} /><div className="orb-total-card"><span>Total available</span><strong>◈ {formatNumber(availableOrbs)}</strong><small>Saved + current TR</small></div></div>
             <h2 className="subsection-title progression-title">Optional starting points</h2><p className="setup-hint">Community examples only — these milestone names do not exist in the game. Applying one keeps your orb balance and you can adjust every value afterwards.</p><div className="milestone-grid">{PROGRESSION_EXAMPLES.map((example) => <button key={example.name} onClick={() => applyProgressionExample(example)}><span>{example.name}</span><strong>{example.description}</strong><small>{example.values.research} research · {formatNumber(example.values.tech)} tech · {example.values.meltdown} meltdown</small></button>)}</div>
           </section>}
