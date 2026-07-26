@@ -68,10 +68,10 @@ const PROGRESSION_EXAMPLES: Array<{ name: string; description: string; values: O
 const DEFAULT_WEIGHTS: Record<Resource, number> = { cells: 1, mp: 20, shards: 15, rp: 10, ap: 14.85, mats: 100 };
 const RESOURCE_META: Record<Resource, { label: string; short: string; color: string }> = {
   cells: { label: "Cells", short: "C", color: "#73e6b1" },
-  mp: { label: "Matter Points", short: "MP", color: "#ff7e98" },
+  mp: { label: "Mod Points", short: "MP", color: "#ff7e98" },
   shards: { label: "Shards", short: "S", color: "#67b7ff" },
   rp: { label: "Research Points", short: "RP", color: "#ffd263" },
-  ap: { label: "Ascension Points", short: "AP", color: "#8b8cff" },
+  ap: { label: "Academy Points", short: "AP", color: "#8b8cff" },
   mats: { label: "Materials", short: "M", color: "#d89a68" },
 };
 
@@ -159,28 +159,28 @@ const UPGRADES: Upgrade[] = [
     ["cells", "Cells Bonus", "Global Cells multiplier", "cells", 4.57e10, 8.1, 30],
     ["shards", "Shards Bonus", "Global Shards multiplier", "shards", 6.73e9, 10.8, 30],
     ["rp", "RP Bonus", "Research Point multiplier", "rp", 5.08e10, 11.1, 30, 1],
-    ["mp", "MP Bonus", "Matter Point multiplier", "mp", 8.99e10, 13.4, 30, 1],
-    ["ap", "AP Bonus", "Ascension Point multiplier", "ap", 3.24e10, 12.7, 30, 2],
+    ["mp", "MP Bonus", "Mod Point multiplier", "mp", 8.99e10, 13.4, 30, 1],
+    ["ap", "AP Bonus", "Academy Point multiplier", "ap", 3.24e10, 12.7, 30, 2],
     ["mats", "Mats Bonus", "Materials multiplier", "mats", 1.42e11, 14.2, 25, 3],
     ["orbs", "Orbs Bonus", "Orb income multiplier", "mats", 2.85e11, 15.6, 25, 4],
   ]),
   ...gemCatalog("Temporal", [
     ["quality", "Temporal Gem Level", "Raises the Gem level and unlocks new bonuses", "mp", 7.2e9, 16.8, 20],
-    ["lms", "MP (LMs)", "Matter Point loop-mod output", "mp", 4.03e8, 18.2, 25],
-    ["ticks", "MP (Ticks)", "Matter Point tick multiplier", "mp", 4.03e8, 16.1, 25],
-    ["zag-ranks", "MP (Zag Ranks)", "Matter Points from Zag ranks", "mp", 1e7, 8.2, 30, 1],
+    ["lms", "MP (LMs)", "Mod Point loop-mod output", "mp", 4.03e8, 18.2, 25],
+    ["ticks", "MP (Ticks)", "Mod Point tick multiplier", "mp", 4.03e8, 16.1, 25],
+    ["zag-ranks", "MP (Zag Ranks)", "Mod Points from Zag ranks", "mp", 1e7, 8.2, 30, 1],
     ["lm-max", "LM Max Levels", "Raises Loop Mod maximum levels", "rp", 1.31e11, 13.7, 18, 2],
-    ["zag-crew", "MP (Zag Crew)", "Matter Points from Zag crew", "mp", 5.31e10, 14.4, 25, 2],
-    ["lrs", "MP (LRs)", "Matter Points from loop resets", "mp", 4.9e11, 15.2, 25, 3],
+    ["zag-crew", "MP (Zag Crew)", "Mod Points from Zag crew", "mp", 5.31e10, 14.4, 25, 2],
+    ["lrs", "MP (LRs)", "Mod Points from loop resets", "mp", 4.9e11, 15.2, 25, 3],
   ]),
   ...gemCatalog("Innovation", [
     ["quality", "Innovation Gem Level", "Raises the Gem level and unlocks new bonuses", "cells", 6.6e10, 13.3, 20],
     ["studies", "Studies Bonus", "Boosts Study effectiveness", "rp", 2.54e10, 12.5, 25],
     ["cells", "Cells Bonus", "Global Cells multiplier", "cells", 1e11, 12.8, 30],
-    ["mp", "MP Bonus", "Matter Point multiplier", "mp", 2e11, 12.6, 30, 1],
+    ["mp", "MP Bonus", "Mod Point multiplier", "mp", 2e11, 12.6, 30, 1],
     ["shards", "Shards Bonus", "Global Shards multiplier", "shards", 3e11, 11.9, 30, 1],
     ["rp", "RP Bonus", "Research Point multiplier", "rp", 4e11, 12.2, 30, 1],
-    ["ap", "AP Bonus", "Ascension Point multiplier", "ap", 5e11, 13.1, 25, 2],
+    ["ap", "AP Bonus", "Academy Point multiplier", "ap", 5e11, 13.1, 25, 2],
     ["mats", "Mats Bonus", "Materials multiplier", "mats", 1e12, 13.7, 25, 2],
     ["blueprints", "Bonus Blueprints", "Adds bonus Innovation blueprints", "rp", 1e13, 15.1, 15, 3],
     ["cores", "Bonus Inno Cores", "Adds bonus Innovation cores", "mats", 1e13, 15.9, 15, 3],
@@ -200,7 +200,7 @@ const UPGRADES: Upgrade[] = [
     ["hardware", "Hardware Bonus", "Boosts hardware production", "cells", 4.75e10, 12.9, 25],
     ["software", "Software Bonus", "Boosts software production", "cells", 4.19e10, 12.4, 25],
     ["cells", "Cells Bonus", "Global Cells multiplier", "cells", 9.92e10, 11.6, 30, 1],
-    ["mp", "MP Bonus", "Matter Point multiplier", "mp", 7.24e11, 13.2, 30, 1],
+    ["mp", "MP Bonus", "Mod Point multiplier", "mp", 7.24e11, 13.2, 30, 1],
     ["shards", "Shards Bonus", "Global Shards multiplier", "shards", 7.4e12, 10.1, 22, 1],
     ["rp", "RP Bonus", "Research Point multiplier", "rp", 1.8e11, 12.1, 30, 2],
     ["trinkets", "+F Trinket Tiers", "Unlocks stronger +F Trinket tiers", "mats", 2.11e11, 14.8, 18, 2],
@@ -667,7 +667,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.9</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.9.1</span></p></div>
       </aside>
 
       <section className="workspace">
