@@ -4,20 +4,24 @@ import { useEffect, useMemo, useState } from "react";
 import sourceGemData from "./source-gem-data.json";
 import sourceGemNodes from "./source-gem-nodes.json";
 import sourceUpgradeCaps from "./source-upgrade-caps.json";
+import {
+  calculateNodeMetric,
+  calculateUpgradeMetric,
+  metricScore,
+  NODE_EFFECTS,
+  PLANNER_RESOURCES,
+  SHIP_IDS,
+  type CalculationProfile,
+  type PlannerResource,
+  type ShipId,
+} from "./planner-calculations";
 
-type Resource = "cells" | "mp" | "shards" | "rp" | "ap" | "mats";
+type Resource = PlannerResource;
 type View = "planner" | "profile" | "weights";
 const GEM_NAMES = ["Exodus", "Temporal", "Innovation", "Power", "Attraction", "Creation", "Evolution"] as const;
 type GemName = (typeof GEM_NAMES)[number];
 
-type Profile = {
-  lrs: number;
-  tech: number;
-  research: number;
-  meltdown: number;
-  quantum: number;
-  mk9: number;
-  production: number;
+type Profile = CalculationProfile & {
   savedOrbs: number;
   currentTrOrbs: number;
 };
@@ -59,13 +63,23 @@ const SOURCE_GEM_DATA = sourceGemData as Record<string, SourceUpgradeData>;
 const GEM_NODES = sourceGemNodes as GemNode[];
 const UPGRADE_LEVEL_CAPS = sourceUpgradeCaps as Record<string, number>;
 
-const DEFAULT_PROFILE: Profile = { lrs: 6200, tech: 23000, research: 425, meltdown: 0.75, quantum: 75, mk9: 80, production: 0, savedOrbs: 1.63e9, currentTrOrbs: 1.15e12 };
-const PROGRESSION_EXAMPLES: Array<{ name: string; description: string; values: Omit<Profile, "savedOrbs" | "currentTrOrbs"> }> = [
-  { name: "Hito 1", description: "Early reference", values: { lrs: 5500, tech: 22000, research: 420, meltdown: 0.74, quantum: 75, mk9: 80, production: 0 } },
-  { name: "Hito 2", description: "Mid reference", values: { lrs: 6400, tech: 24000, research: 450, meltdown: 0.76, quantum: 80, mk9: 120, production: 400 } },
-  { name: "Hito 3", description: "Advanced reference", values: { lrs: 9250, tech: 31000, research: 500, meltdown: 0.85, quantum: 100, mk9: 232, production: 1200 } },
+const DEFAULT_SHIPS: CalculationProfile["ships"] = {
+  cradle: { rank: 266, crew: 2098 },
+  aux: { rank: 154, crew: 1723 },
+  zag: { rank: 120, crew: 1261 },
+  hephaestus: { rank: 544, crew: 1116 },
+  demeter: { rank: 51, crew: 1059 },
+  koios: { rank: 81, crew: 1012 },
+  zeus: { rank: 37, crew: 865 },
+};
+const DEFAULT_PROFILE: Profile = { lrs: 6200, tech: 23000, research: 425, meltdown: 0.75, quantum: 75, manualMk9: 0, mk9Output: 0, relic26Level: 0, ultimaBadgeCost: 0, ships: DEFAULT_SHIPS, savedOrbs: 1.63e9, currentTrOrbs: 1.15e12 };
+type ProgressionExampleValues = Omit<Profile, "savedOrbs" | "currentTrOrbs" | "ships" | "relic26Level" | "ultimaBadgeCost">;
+const PROGRESSION_EXAMPLES: Array<{ name: string; description: string; values: ProgressionExampleValues }> = [
+  { name: "Hito 1", description: "Early reference", values: { lrs: 5500, tech: 22000, research: 420, meltdown: 0.74, quantum: 75, manualMk9: 0, mk9Output: 0 } },
+  { name: "Hito 2", description: "Mid reference", values: { lrs: 6400, tech: 24000, research: 450, meltdown: 0.76, quantum: 80, manualMk9: 20, mk9Output: 400 } },
+  { name: "Hito 3", description: "Advanced reference", values: { lrs: 9250, tech: 31000, research: 500, meltdown: 0.85, quantum: 100, manualMk9: 80, mk9Output: 1200 } },
 ];
-const DEFAULT_WEIGHTS: Record<Resource, number> = { cells: 1, mp: 20, shards: 15, rp: 10, ap: 14.85, mats: 100 };
+const DEFAULT_WEIGHTS: Record<Resource, number> = { cells: 1, mp: 20, shards: 15, rp: 10, ap: 14.9, mats: 100, borge: 10000, ozzy: 10000, knox: 10000 };
 const RESOURCE_META: Record<Resource, { label: string; short: string; color: string }> = {
   cells: { label: "Cells", short: "C", color: "#73e6b1" },
   mp: { label: "Mod Points", short: "MP", color: "#ff7e98" },
@@ -73,6 +87,9 @@ const RESOURCE_META: Record<Resource, { label: string; short: string; color: str
   rp: { label: "Research Points", short: "RP", color: "#ffd263" },
   ap: { label: "Academy Points", short: "AP", color: "#8b8cff" },
   mats: { label: "Materials", short: "M", color: "#d89a68" },
+  borge: { label: "Borge Loot", short: "B", color: "#ff9866" },
+  ozzy: { label: "Ozzy Loot", short: "O", color: "#e66fff" },
+  knox: { label: "Knox Loot", short: "K", color: "#66e8ee" },
 };
 
 const GEM_META: Record<GemName, { accent: string; defaultProgress: GemProgress }> = {
@@ -186,12 +203,12 @@ const UPGRADES: Upgrade[] = [
     ["cores", "Bonus Inno Cores", "Adds bonus Innovation cores", "mats", 1e13, 15.9, 15, 3],
   ]),
   ...gemCatalog("Attraction", [
-    ["quality", "Attraction Gem Level", "Raises the Gem level and unlocks new bonuses", "mats", 4.8e10, 14.3, 20],
-    ["borge", "Borge Loot", "Increases Borge loot multiplier", "mats", 2.61e11, 19.4, 16],
-    ["ozzy", "Ozzy Loot", "Increases Ozzy loot multiplier", "mats", 4.56e10, 16.4, 16],
-    ["catch-up", "Catch-Up (Borge)", "Boosts Borge catch-up power", "mats", 1, 6.2, 12],
-    ["gu1", "Knox Loot", "Increases Knox loot multiplier", "mats", 7.5e10, 11.3, 20, 4],
-    ["gu2", "Catch-Up (Knox)", "Boosts Knox catch-up power", "mats", 2.4e11, 12.1, 20, 4],
+    ["quality", "Attraction Gem Level", "Raises the Gem level and unlocks new bonuses", "borge", 4.8e10, 14.3, 20],
+    ["borge", "Borge Loot", "Increases Borge loot multiplier", "borge", 2.61e11, 19.4, 16],
+    ["ozzy", "Ozzy Loot", "Increases Ozzy loot multiplier", "ozzy", 4.56e10, 16.4, 16],
+    ["catch-up", "Catch-Up (Borge)", "Boosts Borge catch-up power", "borge", 1, 6.2, 12],
+    ["gu1", "Knox Loot", "Increases Knox loot multiplier", "knox", 7.5e10, 11.3, 20, 4],
+    ["gu2", "Catch-Up (Knox)", "Boosts Knox catch-up power", "knox", 2.4e11, 12.1, 20, 4],
     ["gu3", "Ship Evo Bonus", "Boosts ship evolution gains", "ap", 9e11, 13.6, 20, 4],
   ]),
   ...gemCatalog("Creation", [
@@ -204,9 +221,9 @@ const UPGRADES: Upgrade[] = [
     ["shards", "Shards Bonus", "Global Shards multiplier", "shards", 7.4e12, 10.1, 22, 1],
     ["rp", "RP Bonus", "Research Point multiplier", "rp", 1.8e11, 12.1, 30, 2],
     ["trinkets", "+F Trinket Tiers", "Unlocks stronger +F Trinket tiers", "mats", 2.11e11, 14.8, 18, 2],
-    ["borge", "Borge Stats", "Boosts Borge combat stats", "mats", 1e12, 13.4, 20, 3],
-    ["ozzy", "Ozzy Stats", "Boosts Ozzy combat stats", "mats", 1e12, 13.6, 20, 3],
-    ["knox", "Knox Stats", "Boosts Knox combat stats", "mats", 1e12, 13.9, 20, 4],
+    ["borge", "Borge Stats", "Boosts Borge combat stats", "borge", 1e12, 13.4, 20, 3],
+    ["ozzy", "Ozzy Stats", "Boosts Ozzy combat stats", "ozzy", 1e12, 13.6, 20, 3],
+    ["knox", "Knox Stats", "Boosts Knox combat stats", "knox", 1e12, 13.9, 20, 4],
   ]),
   ...gemCatalog("Power", [
     ["quality", "Power Gem Level", "Raises the Gem level and unlocks new bonuses", "rp", 5.9e10, 13.9, 20],
@@ -245,7 +262,8 @@ function normalizeUpgradePlan(plan: Record<string, number>, plannedGemLevels: Re
   return normalized;
 }
 
-const STORAGE_KEY = "cifi-gem-planner-prototype-v4";
+const STORAGE_KEY = "cifi-gem-planner-prototype-v5";
+const LEGACY_STORAGE_KEY = "cifi-gem-planner-prototype-v4";
 
 function formatNumber(value: number) {
   if (!Number.isFinite(value)) return "0";
@@ -293,10 +311,11 @@ function GemSetupCard({ gem, progress, maxLevel, allowedMaxLevel, levelLockReaso
         const locked = node.index > ownedNodeLimit;
         const state = node.index <= progress.nodes ? "active" : node.index <= plannedEnd ? "planned" : locked ? "locked" : "";
         const reason = nodeLockReason(gem, node.index, currentExodusLevel, progress.level);
-        return <button key={node.id} type="button" disabled={locked} title={reason || `Node ${node.index}: ◈ ${formatNumber(node.cost)}`} className={state} onClick={() => onNodes(progress.nodes === node.index ? node.index - 1 : node.index)}>{node.index}</button>;
+        return <button key={node.id} type="button" disabled={locked} title={reason || `Node ${node.index}: ◈ ${formatNumber(node.cost)} · ${NODE_EFFECTS[node.id] ?? "Permanent Gem node effects"}`} className={state} onClick={() => onNodes(progress.nodes === node.index ? node.index - 1 : node.index)}>{node.index}</button>;
       })}</div></div>
       {blockedReason && <p className="node-unlock-note">{blockedReason}.</p>}
-      <div className="node-purchase-actions"><button type="button" disabled={!plannedNodes} onClick={onRemoveNode}>−</button><button type="button" className="node-purchase-button" disabled={!nextNode} onClick={onAddNode}>{nextNode ? `Add node ${nextNode.index} · ◈ ${formatNumber(nextNode.cost)}` : blockedReason || "All nodes owned"}</button></div>
+      <div className="node-purchase-actions"><button type="button" disabled={!plannedNodes} onClick={onRemoveNode}>−</button><button type="button" className="node-purchase-button" disabled={!nextNode} title={nextNode ? NODE_EFFECTS[nextNode.id] : blockedReason} onClick={onAddNode}>{nextNode ? `Add node ${nextNode.index} · ◈ ${formatNumber(nextNode.cost)}` : blockedReason || "All nodes owned"}</button></div>
+      {(nextNode || blockedNextNode) && <p className="node-effect-note"><span>Node {(nextNode || blockedNextNode)?.index} effect</span>{NODE_EFFECTS[(nextNode || blockedNextNode)?.id ?? ""] ?? "Permanent Gem node effects."}</p>}
     </article>
   );
 }
@@ -309,6 +328,47 @@ function upgradeCostRange(upgrade: Upgrade, fromLevel: number, quantity: number)
   let total = 0;
   for (let offset = 0; offset < quantity; offset += 1) total += upgradeCostAt(upgrade, fromLevel + offset);
   return total;
+}
+
+const SHIP_META: Record<ShipId, { label: string }> = {
+  cradle: { label: "Cradle" },
+  aux: { label: "Auxesia" },
+  zag: { label: "Zagreus" },
+  hephaestus: { label: "Hephaestus" },
+  demeter: { label: "Demeter" },
+  koios: { label: "Koios" },
+  zeus: { label: "Zeus" },
+};
+
+function normalizeStoredProfile(stored: Partial<Profile> & { mk9?: number; production?: number } = {}, resetAdvanced = false): Profile {
+  const normalizedShips = Object.fromEntries(SHIP_IDS.map((ship) => [
+    ship,
+    {
+      rank: Math.max(0, Number(stored.ships?.[ship]?.rank ?? DEFAULT_SHIPS[ship].rank)),
+      crew: Math.max(0, Number(stored.ships?.[ship]?.crew ?? DEFAULT_SHIPS[ship].crew)),
+    },
+  ])) as Profile["ships"];
+  return {
+    lrs: Math.max(0, Number(stored.lrs ?? DEFAULT_PROFILE.lrs)),
+    tech: Math.max(0, Number(stored.tech ?? DEFAULT_PROFILE.tech)),
+    research: Math.max(0, Number(stored.research ?? DEFAULT_PROFILE.research)),
+    meltdown: Math.max(0, Number(stored.meltdown ?? DEFAULT_PROFILE.meltdown)),
+    quantum: Math.max(0, Number(stored.quantum ?? DEFAULT_PROFILE.quantum)),
+    manualMk9: Math.max(0, Number(stored.manualMk9 ?? 0)),
+    mk9Output: Math.max(0, Number(stored.mk9Output ?? stored.production ?? DEFAULT_PROFILE.mk9Output)),
+    relic26Level: resetAdvanced ? 0 : Math.min(40, Math.max(0, Math.trunc(Number(stored.relic26Level ?? DEFAULT_PROFILE.relic26Level)))),
+    ultimaBadgeCost: resetAdvanced ? 0 : Math.max(0, Number(stored.ultimaBadgeCost ?? DEFAULT_PROFILE.ultimaBadgeCost)),
+    ships: normalizedShips,
+    savedOrbs: Math.max(0, Number(stored.savedOrbs ?? DEFAULT_PROFILE.savedOrbs)),
+    currentTrOrbs: Math.max(0, Number(stored.currentTrOrbs ?? DEFAULT_PROFILE.currentTrOrbs)),
+  };
+}
+
+function normalizeStoredWeights(stored: Partial<Record<Resource, number>> = {}) {
+  return Object.fromEntries(PLANNER_RESOURCES.map((resource) => [
+    resource,
+    Math.max(0, Number(stored[resource] ?? DEFAULT_WEIGHTS[resource])),
+  ])) as Record<Resource, number>;
 }
 
 export default function Home() {
@@ -332,7 +392,9 @@ export default function Home() {
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      const currentStored = window.localStorage.getItem(STORAGE_KEY);
+      const legacyStored = currentStored ? null : window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      const stored = currentStored ?? legacyStored;
       if (!stored) { setHydrated(true); return; }
       try {
         const parsed = JSON.parse(stored);
@@ -368,13 +430,16 @@ export default function Home() {
           );
           return quantity > 0 ? [[gem, quantity]] : [];
         })) as Partial<Record<GemName, number>>;
-        if (parsed.profile) setProfile(parsed.profile);
-        if (parsed.weights) setWeights(parsed.weights);
+        if (parsed.profile) setProfile(normalizeStoredProfile(parsed.profile, Boolean(legacyStored)));
+        if (parsed.weights) setWeights(normalizeStoredWeights(parsed.weights));
         setPlan(normalizedStoredPlan);
         setNodePlan(normalizedNodePlan);
         setGemProgress(normalizedProgress);
         setUpgradeLevels(normalizeUpgradeLevels(parsed.upgradeLevels ?? {}, storedGemLevels));
-      } catch { window.localStorage.removeItem(STORAGE_KEY); }
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+        if (legacyStored) window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
       finally { setHydrated(true); }
     });
     return () => { cancelled = true; };
@@ -391,10 +456,27 @@ export default function Home() {
     gemProgress[gem].level + (plan[`${gem.toLowerCase()}-quality`] ?? 0),
   )])) as Record<GemName, number>), [gemProgress, plan]);
   const plannedExodusLevel = plannedGemLevels.Exodus;
+  const plannedGemNodeCounts = useMemo(() => Object.fromEntries(GEM_NAMES.map((gem) => [
+    gem,
+    Math.min(
+      availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem]),
+      gemProgress[gem].nodes + Math.max(0, nodePlan[gem] ?? 0),
+    ),
+  ])) as Record<GemName, number>, [gemProgress, nodePlan, plannedExodusLevel, plannedGemLevels]);
+  const calculationUpgradeLevels = useMemo(() => Object.fromEntries(UPGRADES.map((upgrade) => {
+    if (upgrade.isGemLevel) return [upgrade.id, plannedGemLevels[upgrade.gem]];
+    const current = gemProgress[upgrade.gem].level >= upgrade.requiredLevel ? (upgradeLevels[upgrade.id] ?? upgrade.defaultLevel) : 0;
+    return [upgrade.id, Math.min(upgrade.max, current + Math.max(0, plan[upgrade.id] ?? 0))];
+  })) as Record<string, number>, [gemProgress, plan, plannedGemLevels, upgradeLevels]);
+  const calculationContext = useMemo(() => ({
+    profile,
+    weights,
+    gemLevels: plannedGemLevels,
+    gemNodes: plannedGemNodeCounts,
+    upgradeLevels: calculationUpgradeLevels,
+  }), [calculationUpgradeLevels, plannedGemLevels, plannedGemNodeCounts, profile, weights]);
 
   const catalog = useMemo(() => {
-    const defaultProgression = 1 + DEFAULT_PROFILE.research / 3000 + DEFAULT_PROFILE.meltdown / 10;
-    const progression = (1 + profile.research / 3000 + profile.meltdown / 10) / defaultProgression;
     return UPGRADES.map((upgrade) => {
       const storedLevel = upgrade.isGemLevel ? gemProgress[upgrade.gem].level : (gemProgress[upgrade.gem].level >= upgrade.requiredLevel ? (upgradeLevels[upgrade.id] ?? upgrade.defaultLevel) : 0);
       const current = Math.min(upgrade.max, Math.max(0, storedLevel));
@@ -408,14 +490,16 @@ export default function Home() {
       const plannedLevelLockReason = upgrade.isGemLevel ? gemLevelLockReason(upgrade.gem, nextTargetLevel, plannedGemLevels) : "";
       const unlocked = gemProgress[upgrade.gem].level >= upgrade.requiredLevel && !currentLevelLockReason;
       const unlockedInPlan = plannedGemLevels[upgrade.gem] >= upgrade.requiredLevel && !plannedLevelLockReason;
+      const metric = calculateUpgradeMetric(upgrade.id, current + plannedQuantity, calculationContext);
       const fallbackScore = (upgrade.gain * DEFAULT_WEIGHTS[upgrade.resource] * 1e10) / Math.max(1, upgrade.referenceCost || nextCost);
       const baseScore = upgrade.sourceScore > 0 ? upgrade.sourceScore : fallbackScore;
       const weightFactor = weights[upgrade.resource] / DEFAULT_WEIGHTS[upgrade.resource];
       const costFactor = Number.isFinite(nextCost) && upgrade.referenceCost > 0 ? upgrade.referenceCost / nextCost : 1;
-      const score = priceAvailable ? baseScore * weightFactor * costFactor * progression : 0;
-      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, priceAvailable, unlocked, unlockedInPlan, score, maxed: current >= upgrade.max, levelLockReason: plannedLevelLockReason };
+      const score = priceAvailable ? (metric ? metricScore(metric, nextCost) : baseScore * weightFactor * costFactor) : 0;
+      const bonus = metric?.bonus || upgrade.sourceBonus || (upgrade.isGemLevel ? "Unlocks and amplifies Gem bonuses" : upgrade.effect);
+      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, priceAvailable, unlocked, unlockedInPlan, score, bonus, scoreComponents: metric?.components ?? {}, maxed: current >= upgrade.max, levelLockReason: plannedLevelLockReason };
     });
-  }, [currentGemLevels, gemProgress, plan, plannedGemLevels, profile, upgradeLevels, weights]);
+  }, [calculationContext, currentGemLevels, gemProgress, plan, plannedGemLevels, upgradeLevels, weights]);
 
   const ranked = useMemo(() => catalog
     .filter((upgrade) => filter === "all" || upgrade.resource === filter)
@@ -429,7 +513,8 @@ export default function Home() {
     const nodeLimit = availableNodeLimit(gem, plannedExodusLevel, plannedGemLevels[gem]);
     const quantity = Math.min(nodePlan[gem] ?? 0, Math.max(0, nodeLimit - current));
     const nodes = GEM_NODES.filter((node) => node.gem === gem && node.index > current && node.index <= current + quantity);
-    return { gem, current, quantity, plannedEnd: current + quantity, nodes, cost: nodes.reduce((sum, node) => sum + node.cost, 0) };
+    const metrics = nodes.map((node) => ({ node, metric: calculateNodeMetric(node.id, calculationContext) }));
+    return { gem, current, quantity, plannedEnd: current + quantity, nodes, metrics, cost: nodes.reduce((sum, node) => sum + node.cost, 0) };
   }).filter((item) => item.quantity > 0);
   const upgradeIncrementCount = plannedItems.reduce((sum, upgrade) => sum + upgrade.plannedQuantity, 0);
   const nodeIncrementCount = plannedNodeItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -447,6 +532,12 @@ export default function Home() {
     const simulatedNodes = Object.fromEntries(GEM_NAMES.map((gem) => [gem, gemProgress[gem].nodes + (nodePlan[gem] ?? 0)])) as Record<GemName, number>;
     const items: BudgetRecommendation[] = [];
     let remaining = budgetDifference;
+    const simulatedContext = () => ({
+      ...calculationContext,
+      gemLevels: simulatedGemLevels,
+      gemNodes: simulatedNodes,
+      upgradeLevels: simulatedLevels,
+    });
 
     const affordableGemLevels = catalog.filter((upgrade) => {
       const level = simulatedLevels[upgrade.id];
@@ -461,7 +552,7 @@ export default function Home() {
     if (initialGemLevel) {
       const fromLevel = simulatedLevels[initialGemLevel.id];
       const cost = upgradeCostAt(initialGemLevel, fromLevel);
-      items.push({ kind: "upgrade", id: initialGemLevel.id, gem: initialGemLevel.gem, name: initialGemLevel.name, resource: initialGemLevel.resource, fromLevel, toLevel: fromLevel + 1, cost, bonus: initialGemLevel.sourceBonus || "Unlocks and amplifies Gem bonuses", score: initialGemLevel.score });
+      items.push({ kind: "upgrade", id: initialGemLevel.id, gem: initialGemLevel.gem, name: initialGemLevel.name, resource: initialGemLevel.resource, fromLevel, toLevel: fromLevel + 1, cost, bonus: initialGemLevel.bonus, score: initialGemLevel.score });
       simulatedLevels[initialGemLevel.id] = fromLevel + 1;
       simulatedGemLevels[initialGemLevel.gem] = fromLevel + 1;
       remaining -= cost;
@@ -473,35 +564,51 @@ export default function Home() {
       if (fromLevel >= availableNodeLimit(gem, simulatedGemLevels.Exodus, simulatedGemLevels[gem])) return [];
       const node = GEM_NODES.find((candidate) => candidate.gem === gem && candidate.index === fromLevel + 1);
       if (!node || node.cost > remaining) return [];
-      return [{ gem, node, fromLevel }];
-    }).sort((a, b) => Number(b.gem === priorityGem) - Number(a.gem === priorityGem) || a.node.cost - b.node.cost);
+      const metric = calculateNodeMetric(node.id, simulatedContext());
+      return [{ gem, node, fromLevel, metric, score: metricScore(metric, node.cost) }];
+    }).sort((a, b) => Number(b.gem === priorityGem) - Number(a.gem === priorityGem) || b.score - a.score || a.node.cost - b.node.cost);
     const initialNode = affordableNodes[0];
     if (initialNode) {
-      items.push({ kind: "node", id: initialNode.node.id, gem: initialNode.gem, name: `${initialNode.gem} Gem Node ${initialNode.node.index}`, fromLevel: initialNode.fromLevel, toLevel: initialNode.node.index, cost: initialNode.node.cost, bonus: "Unlocks the next Gem node effect", score: 0 });
+      items.push({ kind: "node", id: initialNode.node.id, gem: initialNode.gem, name: `${initialNode.gem} Gem Node ${initialNode.node.index}`, fromLevel: initialNode.fromLevel, toLevel: initialNode.node.index, cost: initialNode.node.cost, bonus: initialNode.metric.bonus, score: initialNode.score });
       simulatedNodes[initialNode.gem] = initialNode.node.index;
       remaining -= initialNode.node.cost;
     }
 
     while (items.length < 6) {
-      const candidates = catalog.flatMap((upgrade) => {
+      const upgradeCandidates = catalog.flatMap((upgrade) => {
         const fromLevel = simulatedLevels[upgrade.id];
         if (fromLevel >= upgrade.max || simulatedGemLevels[upgrade.gem] < upgrade.requiredLevel) return [];
         if (upgrade.isGemLevel && gemLevelLockReason(upgrade.gem, fromLevel + 1, simulatedGemLevels)) return [];
         const cost = upgradeCostAt(upgrade, fromLevel);
         if (!Number.isFinite(cost) || cost > remaining) return [];
-        const score = upgrade.score * (upgrade.nextCost > 0 && Number.isFinite(upgrade.nextCost) ? upgrade.nextCost / Math.max(cost, 1) : 1);
-        return [{ upgrade, fromLevel, cost, score }];
-      }).sort((a, b) => b.score - a.score || a.cost - b.cost);
+        const metric = calculateUpgradeMetric(upgrade.id, fromLevel, simulatedContext());
+        const score = metric ? metricScore(metric, cost) : upgrade.score * (upgrade.nextCost > 0 && Number.isFinite(upgrade.nextCost) ? upgrade.nextCost / Math.max(cost, 1) : 1);
+        return [{ kind: "upgrade" as const, upgrade, fromLevel, cost, score, bonus: metric?.bonus || upgrade.bonus }];
+      });
+      const nodeCandidates = GEM_NAMES.flatMap((gem) => {
+        const fromLevel = simulatedNodes[gem];
+        if (fromLevel >= availableNodeLimit(gem, simulatedGemLevels.Exodus, simulatedGemLevels[gem])) return [];
+        const node = GEM_NODES.find((candidate) => candidate.gem === gem && candidate.index === fromLevel + 1);
+        if (!node || node.cost > remaining) return [];
+        const metric = calculateNodeMetric(node.id, simulatedContext());
+        return [{ kind: "node" as const, node, gem, fromLevel, cost: node.cost, score: metricScore(metric, node.cost), bonus: metric.bonus }];
+      });
+      const candidates = [...upgradeCandidates, ...nodeCandidates].sort((a, b) => b.score - a.score || a.cost - b.cost);
       const best = candidates[0];
       if (!best) break;
       const toLevel = best.fromLevel + 1;
-      items.push({ kind: "upgrade", id: best.upgrade.id, gem: best.upgrade.gem, name: best.upgrade.name, resource: best.upgrade.resource, fromLevel: best.fromLevel, toLevel, cost: best.cost, bonus: best.upgrade.sourceBonus || (best.upgrade.isGemLevel ? "Unlocks and amplifies Gem bonuses" : best.upgrade.effect), score: best.score });
-      simulatedLevels[best.upgrade.id] = toLevel;
-      if (best.upgrade.isGemLevel) simulatedGemLevels[best.upgrade.gem] = toLevel;
+      if (best.kind === "upgrade") {
+        items.push({ kind: "upgrade", id: best.upgrade.id, gem: best.upgrade.gem, name: best.upgrade.name, resource: best.upgrade.resource, fromLevel: best.fromLevel, toLevel, cost: best.cost, bonus: best.bonus, score: best.score });
+        simulatedLevels[best.upgrade.id] = toLevel;
+        if (best.upgrade.isGemLevel) simulatedGemLevels[best.upgrade.gem] = toLevel;
+      } else {
+        items.push({ kind: "node", id: best.node.id, gem: best.gem, name: `${best.gem} Gem Node ${best.node.index}`, fromLevel: best.fromLevel, toLevel, cost: best.cost, bonus: best.bonus, score: best.score });
+        simulatedNodes[best.gem] = toLevel;
+      }
       remaining -= best.cost;
     }
     return { items, remaining };
-  }, [budgetDifference, catalog, gemProgress, nodePlan, selectedGem]);
+  }, [budgetDifference, calculationContext, catalog, gemProgress, nodePlan, selectedGem]);
   const selectedProgress = selectedGem === "all" ? null : gemProgress[selectedGem];
   const selectedGemUpgrade = selectedGem === "all" ? null : catalog.find((upgrade) => upgrade.gem === selectedGem && upgrade.isGemLevel);
   const selectedPlannedNodes = selectedGem === "all" ? 0 : (nodePlan[selectedGem] ?? 0);
@@ -512,6 +619,12 @@ export default function Home() {
   const selectedNodeBlockReason = selectedGem === "all" || !selectedBlockedNode ? "" : nodeLockReason(selectedGem, selectedBlockedNode.index, plannedExodusLevel, plannedGemLevels[selectedGem]);
 
   function updateProfile<K extends keyof Profile>(key: K, value: Profile[K]) { setProfile((current) => ({ ...current, [key]: value })); }
+  function updateShip(ship: ShipId, key: "rank" | "crew", value: number) {
+    setProfile((current) => ({
+      ...current,
+      ships: { ...current.ships, [ship]: { ...current.ships[ship], [key]: Math.max(0, Math.trunc(value)) } },
+    }));
+  }
   function updateGem(gem: GemName, patch: Partial<GemProgress>) { setGemProgress((current) => ({ ...current, [gem]: { ...current[gem], ...patch } })); }
   function normalizeGemLevelPlan(baseLevels: Record<GemName, number>, sourcePlan: Record<string, number>) {
     const rawPlannedLevels = Object.fromEntries(GEM_NAMES.map((gem) => [
@@ -667,7 +780,7 @@ export default function Home() {
       <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><img src="gem-planner-mark.png" alt="Gem Planner" /></div><div><strong>Gem Planner</strong><small>CIFI community tool</small></div></div>
         <nav aria-label="Main navigation"><p>PLANNING</p>{navItems.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMobileNav(false); }}><i>{item.icon}</i><span>{item.label}</span>{item.id === "planner" && plannedCount > 0 && <b>{plannedCount}</b>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Community preview <span>1.9.1</span></p></div>
+        <div className="sidebar-bottom"><div className="save-state"><i /><span>{notice}</span></div><button className="ghost-button" onClick={reset}>Reset planner</button><p>Local preview <span>1.11.2</span></p></div>
       </aside>
 
       <section className="workspace">
@@ -712,7 +825,7 @@ export default function Home() {
                     <div className="upgrade-main"><strong>{upgrade.name}</strong><span>{upgrade.gem} Gem · {upgrade.effect}</span>{!upgrade.unlocked && upgrade.unlockedInPlan && <em>Will unlock with the Gem levels in your plan</em>}{locked && <em>{upgrade.levelLockReason || `Unlocks at Gem level ${upgrade.requiredLevel}`}</em>}</div>
                     <div className="level level-readonly"><span>{upgrade.isGemLevel ? "GEM LEVEL" : "LEVEL"}</span><strong>{upgrade.current}{selected ? ` → ${upgrade.plannedLevel}` : ""} / {upgrade.max}</strong></div>
                     <div className="cost"><span>{selected ? `PLAN · ${upgrade.plannedQuantity}` : "NEXT COST"}</span><strong>{upgrade.maxed ? "MAX" : upgrade.priceAvailable ? `◈ ${formatNumber(selected ? upgrade.planCost : upgrade.nextCost)}` : "Unavailable"}</strong></div>
-                    <div className="bonus" title={upgrade.sourceBonus || upgrade.effect}><span>BONUS</span><strong>{upgrade.sourceBonus || (upgrade.isGemLevel ? "Unlocks bonuses" : upgrade.effect)}</strong></div>
+                    <div className="bonus" title={upgrade.bonus}><span>BONUS</span><strong>{upgrade.bonus}</strong></div>
                     <div className="efficiency"><span>SCORE</span><strong>{upgrade.score.toFixed(1)}</strong><div><i style={{ width: `${Math.min(100, upgrade.score * 2.2)}%` }} /></div></div>
                     <ResourceIcon resource={upgrade.resource} /><button className="add-button" disabled={locked || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={!upgrade.priceAvailable && !upgrade.maxed ? "Price unavailable in source data" : ""} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>{selected ? <span>+{upgrade.plannedQuantity}</span> : locked ? "×" : upgrade.priceAvailable ? "+" : "?"}</button>
                   </article>;
@@ -722,7 +835,7 @@ export default function Home() {
 
               <aside className="plan-panel panel"><div className="panel-heading"><div><p className="eyebrow">PURCHASE PLAN</p><h2>Next upgrades</h2></div><span>{plannedCount}</span></div>{plannedCount ? <div className="plan-items">
                 {plannedItems.map((upgrade, index) => <article key={upgrade.id}><i>{index + 1}</i><span><strong>{upgrade.name}</strong><small>{upgrade.gem} · {upgrade.current}→{upgrade.plannedLevel}/{upgrade.max} · ◈ {formatNumber(upgrade.planCost)}</small></span><div className="plan-quantity"><button onClick={() => removePlanIncrement(upgrade.id)} aria-label={`Remove one level of ${upgrade.name}`}>−</button><b>{upgrade.plannedQuantity}</b><button disabled={!upgrade.unlockedInPlan || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={upgrade.levelLockReason || (!upgrade.priceAvailable ? "Price unavailable in source data" : "")} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>+</button></div><button className="remove-plan" onClick={() => removePlanIncrement(upgrade.id, true)} aria-label={`Remove ${upgrade.name} from plan`}>×</button></article>)}
-                {plannedNodeItems.map((item, index) => <article className="node-plan-item" key={`node-${item.gem}`}><i>{plannedItems.length + index + 1}</i><span><strong>{item.gem} Gem Nodes</strong><small>Nodes {item.current}→{item.plannedEnd} · ◈ {formatNumber(item.cost)}</small></span><div className="plan-quantity"><button onClick={() => removeNodeFromPlan(item.gem)} aria-label={`Remove one ${item.gem} node`}>−</button><b>{item.quantity}</b><button disabled={item.plannedEnd >= availableNodeLimit(item.gem, plannedExodusLevel, plannedGemLevels[item.gem])} onClick={() => addNodeToPlan(item.gem)} aria-label={`Add one ${item.gem} node`}>+</button></div><button className="remove-plan" onClick={() => removeNodeFromPlan(item.gem, true)} aria-label={`Remove ${item.gem} nodes from plan`}>×</button></article>)}
+                {plannedNodeItems.map((item, index) => <article className="node-plan-item" key={`node-${item.gem}`} title={item.metrics.map(({ metric }) => metric.bonus).join(" · ")}><i>{plannedItems.length + index + 1}</i><span><strong>{item.gem} Gem Nodes</strong><small>Nodes {item.current}→{item.plannedEnd} · ◈ {formatNumber(item.cost)} · weighted effects included</small></span><div className="plan-quantity"><button onClick={() => removeNodeFromPlan(item.gem)} aria-label={`Remove one ${item.gem} node`}>−</button><b>{item.quantity}</b><button disabled={item.plannedEnd >= availableNodeLimit(item.gem, plannedExodusLevel, plannedGemLevels[item.gem])} onClick={() => addNodeToPlan(item.gem)} aria-label={`Add one ${item.gem} node`}>+</button></div><button className="remove-plan" onClick={() => removeNodeFromPlan(item.gem, true)} aria-label={`Remove ${item.gem} nodes from plan`}>×</button></article>)}
               </div> : <div className="empty-plan"><div>＋</div><strong>Your plan is empty</strong><p>Add Gem levels, upgrades or nodes to build your purchase plan.</p></div>}<div className="plan-total"><span>Total cost · {plannedCount} increments</span><strong>◈ {formatNumber(totalCost)}</strong><small>{availableOrbs >= totalCost ? "Available now" : `${formatNumber(totalCost - availableOrbs)} more orbs needed`}</small></div><div className="plan-actions"><button className="ghost-button" disabled={!plannedCount} onClick={copyPlan}>Copy</button><button className="primary-button" disabled={!plannedCount || totalCost > availableOrbs || !Number.isFinite(totalCost)} onClick={applyPlan}>Apply purchases</button></div></aside>
             </section>
 
@@ -766,11 +879,14 @@ export default function Home() {
                 })}
               </div>)}
             </div>
-            <h2 className="subsection-title progression-title">Global progression</h2><div className="setup-grid panel"><Stepper label="Loop resets" value={profile.lrs} step={100} onChange={(value) => updateProfile("lrs", value)} /><Stepper label="Tech upgrades" value={profile.tech} step={100} onChange={(value) => updateProfile("tech", value)} /><Stepper label="Research levels" value={profile.research} onChange={(value) => updateProfile("research", value)} /><Stepper label="Meltdown" value={profile.meltdown} step={0.01} onChange={(value) => updateProfile("meltdown", value)} /><Stepper label="Quantum tech" value={profile.quantum} onChange={(value) => updateProfile("quantum", value)} /><Stepper label="MK9 level" value={profile.mk9} onChange={(value) => updateProfile("mk9", value)} /><Stepper label="MK9 production" value={profile.production} step={100} onChange={(value) => updateProfile("production", value)} /><Stepper label="Orbs saved from previous TR" value={profile.savedOrbs} step={1e9} onChange={(value) => updateProfile("savedOrbs", value)} /><Stepper label="Orbs earned this TR" value={profile.currentTrOrbs} step={1e9} onChange={(value) => updateProfile("currentTrOrbs", value)} /><div className="orb-total-card"><span>Total available</span><strong>◈ {formatNumber(availableOrbs)}</strong><small>Saved + current TR</small></div></div>
+            <h2 className="subsection-title progression-title">Global progression</h2><div className="setup-grid panel"><Stepper label="Loop resets" value={profile.lrs} step={100} onChange={(value) => updateProfile("lrs", value)} /><Stepper label="Tech upgrades" value={profile.tech} step={100} onChange={(value) => updateProfile("tech", value)} /><Stepper label="Research levels" value={profile.research} onChange={(value) => updateProfile("research", value)} /><Stepper label="Meltdown" value={profile.meltdown} step={0.01} onChange={(value) => updateProfile("meltdown", value)} /><Stepper label="Quantum tech" value={profile.quantum} onChange={(value) => updateProfile("quantum", value)} /><Stepper label="Manual MK9 purchases" value={profile.manualMk9} onChange={(value) => updateProfile("manualMk9", value)} /><Stepper label="MK9 output exponent (e###)" value={profile.mk9Output} step={100} onChange={(value) => updateProfile("mk9Output", value)} /><Stepper label="Orbs saved from previous TR" value={profile.savedOrbs} step={1e9} onChange={(value) => updateProfile("savedOrbs", value)} /><Stepper label="Orbs earned this TR" value={profile.currentTrOrbs} step={1e9} onChange={(value) => updateProfile("currentTrOrbs", value)} /><div className="orb-total-card"><span>Total available</span><strong>◈ {formatNumber(availableOrbs)}</strong><small>Saved + current TR</small></div></div>
+            <h2 className="subsection-title progression-title">Ship stats</h2><p className="setup-hint">Used by Power upgrades and Zagreus Temporal upgrades. For purchase planning, estimate Rank and Crew at the end of your next long TR.</p>
+            <div className="ship-stats-tables">{[SHIP_IDS.slice(0, 4), SHIP_IDS.slice(4)].map((ships, tableIndex) => <div className="ship-stats-panel panel" key={tableIndex}><div className="ship-stats-heading"><strong>Ship</strong><span>Rank</span><span>Crew</span></div><div className="ship-stats-grid">{ships.map((ship) => <label className="ship-stat-row" key={ship}><strong>{SHIP_META[ship].label}</strong><input type="number" min={0} inputMode="numeric" value={profile.ships[ship].rank} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateShip(ship, "rank", Number(event.currentTarget.value) || 0)} aria-label={`${SHIP_META[ship].label} Rank`} /><input type="number" min={0} inputMode="numeric" value={profile.ships[ship].crew} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateShip(ship, "crew", Number(event.currentTarget.value) || 0)} aria-label={`${SHIP_META[ship].label} Crew`} /></label>)}</div></div>)}</div>
+            <details className="advanced-parameters panel"><summary><span><strong>Advanced calculation parameters</strong><small>Relic and Innovation Core valuation assumptions</small></span><b>⌄</b></summary><div className="advanced-parameters-body"><p>Only parameters that affect Gem upgrade calculations are included.</p><div className="advanced-parameters-grid"><div className="advanced-parameter-field"><Stepper label="Relic 26 level" value={profile.relic26Level} max={40} onChange={(value) => updateProfile("relic26Level", Math.trunc(value))} /><small>Adds 2% per level to Max LM Levels and LP Bonus valuation when Exodus Node 3 is active. Requires Power Gem level 3.</small></div><div className="advanced-parameter-field"><Stepper label="Ultima Badge cost" value={profile.ultimaBadgeCost} onChange={(value) => updateProfile("ultimaBadgeCost", Math.max(0, value))} /><small>Innovation Cores are divided by this value to rank Bonus Inno Cores upgrades. A value of 0 leaves those cores unvalued.</small></div></div></div></details>
             <h2 className="subsection-title progression-title">Optional starting points</h2><p className="setup-hint">Community examples only — these milestone names do not exist in the game. Applying one keeps your orb balance and you can adjust every value afterwards.</p><div className="milestone-grid">{PROGRESSION_EXAMPLES.map((example) => <button key={example.name} onClick={() => applyProgressionExample(example)}><span>{example.name}</span><strong>{example.description}</strong><small>{example.values.research} research · {formatNumber(example.values.tech)} tech · {example.values.meltdown} meltdown</small></button>)}</div>
           </section>}
 
-          {view === "weights" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">PERSONAL PRIORITIES</p><h1>Resource weights</h1><p>Tell the planner what matters most to your build.</p></div><button className="ghost-button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Restore defaults</button></div><div className="weights-grid">{(Object.keys(RESOURCE_META) as Resource[]).map((resource) => <article className="weight-card panel" key={resource}><ResourceIcon resource={resource} /><div><strong>{RESOURCE_META[resource].label}</strong><small>Relative value</small></div><input type="range" min="1" max="120" value={weights[resource]} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Number(event.target.value) }))} style={{ "--range": RESOURCE_META[resource].color } as React.CSSProperties} /><output>{weights[resource]}</output></article>)}</div><div className="info-panel panel"><span>i</span><div><strong>How weights work</strong><p>A higher value pushes upgrades for that resource towards the top. Scores are relative, so focus on the balance between resources rather than the absolute numbers.</p></div></div></section>}
+          {view === "weights" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">PERSONAL PRIORITIES</p><h1>Resource weights</h1><p>Tell the planner what matters most to your build.</p></div><button className="ghost-button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Restore defaults</button></div><div className="weights-grid">{PLANNER_RESOURCES.map((resource) => { const sliderMax = resource === "borge" || resource === "ozzy" || resource === "knox" ? 20000 : 120; return <article className="weight-card panel" key={resource}><ResourceIcon resource={resource} /><div><strong>{RESOURCE_META[resource].label}</strong><small>Relative value</small></div><input type="range" min="0" max={sliderMax} value={Math.min(sliderMax, weights[resource])} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Number(event.target.value) }))} style={{ "--range": RESOURCE_META[resource].color } as React.CSSProperties} /><input className="weight-number" type="number" min={0} value={weights[resource]} onFocus={(event) => event.currentTarget.select()} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Math.max(0, Number(event.currentTarget.value) || 0) }))} aria-label={`${RESOURCE_META[resource].label} weight`} /></article>; })}</div><div className="info-panel panel"><span>i</span><div><strong>How weights work</strong><p>Each upgrade can now contribute to several resources at once. Borge, Ozzy and Knox loot use the larger defaults from the original planner, so compare the balance between weights rather than their absolute values.</p></div></div></section>}
 
           <footer className="site-footer">
             <div><strong>Unofficial, non-commercial community tool</strong><p>Not affiliated with or endorsed by Octocube Games. CIFI and its game assets belong to their respective rights holders.</p><p className="creator-credit">Community adaptation and web development by <a href="https://github.com/Deathsunset" target="_blank" rel="noreferrer">Deathsunset</a>.</p></div>
