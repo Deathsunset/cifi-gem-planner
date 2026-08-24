@@ -241,7 +241,7 @@ export function calculateUpgradeMetric(id: string, level: number, context: Calcu
     return mergeMetrics(fromLogs({ mp: logGain }, context, formatMultiplierFromLog(logGain)), exodusNodeSupport("Temporal", context));
   }
   if (id === "temporal-zag-ranks") {
-    const logGain = context.profile.ships.zag.rank * logRatio(0.35, level) * amplification(gemLevels.Temporal);
+    const logGain = context.profile.ships.zag.rank * logRatio(0.35, level) * amplification(Math.min(gemLevels.Temporal, 3));
     return mergeMetrics(fromLogs({ mp: logGain }, context, formatMultiplierFromLog(logGain)), exodusNodeSupport("Temporal", context));
   }
   if (id === "temporal-lm-max") {
@@ -253,11 +253,11 @@ export function calculateUpgradeMetric(id: string, level: number, context: Calcu
     return mergeMetrics(fromLogs(logs, context, exodusNode3 ? "+50 LM levels with relic scaling" : "+39 Cells and +9 MP/Shards LM levels"), exodusNodeSupport("Temporal", context));
   }
   if (id === "temporal-zag-crew") {
-    const logGain = context.profile.ships.zag.crew * logRatio(0.003, level) * amplification(gemLevels.Temporal);
+    const logGain = context.profile.ships.zag.crew * logRatio(0.003, level) * amplification(Math.min(gemLevels.Temporal, 3));
     return mergeMetrics(fromLogs({ mp: logGain }, context, formatMultiplierFromLog(logGain)), exodusNodeSupport("Temporal", context));
   }
   if (id === "temporal-lrs") {
-    const logGain = profile.lrs * logRatio(0.005, level) * amplification(gemLevels.Temporal);
+    const logGain = profile.lrs * logRatio(0.005, level) * amplification(Math.min(gemLevels.Temporal, 3));
     return mergeMetrics(fromLogs({ mp: logGain }, context, formatMultiplierFromLog(logGain)), exodusNodeSupport("Temporal", context));
   }
 

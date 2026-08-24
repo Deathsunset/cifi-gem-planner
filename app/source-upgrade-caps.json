@@ -7,7 +7,7 @@
   "exodus-ap": 999,
   "exodus-mats": 999,
   "exodus-orbs": 999,
-  "temporal-quality": 3,
+  "temporal-quality": 4,
   "temporal-lms": 50,
   "temporal-ticks": 50,
   "temporal-zag-ranks": 10,

@@ -13,6 +13,7 @@ test("stores a real maximum level for every Gem and upgrade", () => {
 });
 
 test("keeps the externally referenced exceptional caps", () => {
+  assert.equal(caps["temporal-quality"], 4);
   assert.equal(caps["exodus-cells"], 999);
   assert.equal(caps["temporal-zag-ranks"], 10);
   assert.equal(caps["attraction-catch-up"], 5);

@@ -133,3 +133,11 @@ test("nodes expose real effects and receive a weighted efficiency", () => {
   assert.ok(node.components.ap > 0);
   assert.ok(metricScore(node, 9000) > 0);
 });
+
+test("Temporal Gem level 4 adds no direct value to existing Temporal upgrades", () => {
+  for (const id of ["temporal-zag-ranks", "temporal-zag-crew", "temporal-lrs"]) {
+    const atLevel3 = calculateUpgradeMetric(id, 2, context({ gemLevels: { Temporal: 3 } })).value;
+    const atLevel4 = calculateUpgradeMetric(id, 2, context({ gemLevels: { Temporal: 4 } })).value;
+    closeTo(atLevel4, atLevel3);
+  }
+});

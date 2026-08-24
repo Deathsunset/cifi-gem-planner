@@ -15,6 +15,16 @@ import {
   type PlannerResource,
   type ShipId,
 } from "./planner-calculations";
+import {
+  canRecommendUpgrade,
+  clampWeightPriority,
+  isMandatoryTemporalLevel4,
+  MAX_WEIGHT_PRIORITY,
+  MIN_WEIGHT_PRIORITY,
+  priorityFromWeight,
+  TEMPORAL_LEVEL_4_COST,
+  weightFromPriority,
+} from "./planner-preferences";
 
 type Resource = PlannerResource;
 type View = "planner" | "profile" | "weights";
@@ -123,6 +133,7 @@ function nodeLockReason(gem: GemName, nodeIndex: number, exodusLevel: number, ge
 
 function gemLevelLockReason(gem: GemName, targetLevel: number, levels: Record<GemName, number>) {
   if (gem === "Exodus" && targetLevel >= 5 && levels.Evolution < 1) return "Requires Evolution Gem level 1";
+  if (gem === "Temporal" && targetLevel >= 4 && levels.Exodus < 5) return "Requires Exodus Gem level 5";
   if (gem === "Power" && targetLevel >= 3 && levels.Exodus < 5) return "Requires Exodus Gem level 5";
   return "";
 }
@@ -130,12 +141,14 @@ function gemLevelLockReason(gem: GemName, targetLevel: number, levels: Record<Ge
 function constrainGemLevels(levels: Record<GemName, number>) {
   const next = { ...levels };
   if (next.Evolution < 1) next.Exodus = Math.min(next.Exodus, 4);
+  if (next.Exodus < 5) next.Temporal = Math.min(next.Temporal, 3);
   if (next.Exodus < 5) next.Power = Math.min(next.Power, 2);
   return next;
 }
 
 function availableGemLevelMax(gem: GemName, absoluteMax: number, levels: Record<GemName, number>) {
   if (gem === "Exodus" && levels.Evolution < 1) return Math.min(absoluteMax, 4);
+  if (gem === "Temporal" && levels.Exodus < 5) return Math.min(absoluteMax, 3);
   if (gem === "Power" && levels.Exodus < 5) return Math.min(absoluteMax, 2);
   return absoluteMax;
 }
@@ -149,7 +162,8 @@ function gemCatalog(gem: GemName, seeds: UpgradeSeed[]): Upgrade[] {
   return seeds.map(([id, name, effect, resource, fallbackCost, gain, fallbackMax, fallbackRequiredLevel = 0]) => {
     const upgradeId = `${gem.toLowerCase()}-${id}`;
     const source = SOURCE_GEM_DATA[upgradeId];
-    const costs = source?.costs?.length ? source.costs : Array.from({ length: fallbackMax }, (_, level) => fallbackCost * 1.85 ** level);
+    const sourceCosts = source?.costs?.length ? source.costs : Array.from({ length: fallbackMax }, (_, level) => fallbackCost * 1.85 ** level);
+    const costs = upgradeId === "temporal-quality" ? [...sourceCosts.slice(0, 3), TEMPORAL_LEVEL_4_COST] : sourceCosts;
     return {
       id: upgradeId,
       gem,
@@ -182,7 +196,7 @@ const UPGRADES: Upgrade[] = [
     ["orbs", "Orbs Bonus", "Orb income multiplier", "mats", 2.85e11, 15.6, 25, 4],
   ]),
   ...gemCatalog("Temporal", [
-    ["quality", "Temporal Gem Level", "Raises the Gem level and unlocks new bonuses", "mp", 7.2e9, 16.8, 20],
+    ["quality", "Temporal Gem Level", "Level 4 is a strategic progression purchase with no direct bonus or new Gem upgrades", "mp", 7.2e9, 16.8, 20],
     ["lms", "MP (LMs)", "Mod Point loop-mod output", "mp", 4.03e8, 18.2, 25],
     ["ticks", "MP (Ticks)", "Mod Point tick multiplier", "mp", 4.03e8, 16.1, 25],
     ["zag-ranks", "MP (Zag Ranks)", "Mod Points from Zag ranks", "mp", 1e7, 8.2, 30, 1],
@@ -283,6 +297,63 @@ function GemArtwork({ gem }: { gem: GemName }) {
   return <img className={`gem-art gem-${gem.toLowerCase()}`} src={`gem-${gem.toLowerCase()}.png`} alt={`${gem} Gem`} />;
 }
 
+function weightPriority(resource: Resource, effectiveWeight: number) {
+  return priorityFromWeight(effectiveWeight, DEFAULT_WEIGHTS[resource]);
+}
+
+function effectiveWeight(resource: Resource, priority: number) {
+  return weightFromPriority(priority, DEFAULT_WEIGHTS[resource]);
+}
+
+function formatWeightPriority(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function WeightControl({ resource, value, onChange }: { resource: Resource; value: number; onChange: (value: number) => void }) {
+  const priority = weightPriority(resource, value);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  function commitDraft() {
+    const parsed = Number((draft ?? formatWeightPriority(priority)).replace(",", "."));
+    const nextPriority = clampWeightPriority(parsed);
+    setDraft(null);
+    onChange(effectiveWeight(resource, nextPriority));
+  }
+
+  return <>
+    <input
+      type="range"
+      min={MIN_WEIGHT_PRIORITY}
+      max={MAX_WEIGHT_PRIORITY}
+      step={1}
+      value={priority}
+      onChange={(event) => onChange(effectiveWeight(resource, Number(event.currentTarget.value)))}
+      style={{ "--range": RESOURCE_META[resource].color } as React.CSSProperties}
+      aria-label={`${RESOURCE_META[resource].label} priority`}
+    />
+    <input
+      className="weight-number"
+      type="text"
+      inputMode="decimal"
+      value={draft ?? formatWeightPriority(priority)}
+      onFocus={(event) => {
+        setDraft(formatWeightPriority(priority));
+        event.currentTarget.select();
+      }}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(null);
+        }
+      }}
+      aria-label={`${RESOURCE_META[resource].label} priority percentage`}
+    />
+  </>;
+}
+
 function Stepper({ label, value, step = 1, max, onChange, suffix, increaseDisabledReason }: { label: string; value: number; step?: number; max?: number; onChange: (value: number) => void; suffix?: string; increaseDisabledReason?: string }) {
   const clamp = (next: number) => Math.min(max ?? Number.MAX_SAFE_INTEGER, Math.max(0, next));
   return (
@@ -367,7 +438,7 @@ function normalizeStoredProfile(stored: Partial<Profile> & { mk9?: number; produ
 function normalizeStoredWeights(stored: Partial<Record<Resource, number>> = {}) {
   return Object.fromEntries(PLANNER_RESOURCES.map((resource) => [
     resource,
-    Math.max(0, Number(stored[resource] ?? DEFAULT_WEIGHTS[resource])),
+    effectiveWeight(resource, weightPriority(resource, Number(stored[resource] ?? DEFAULT_WEIGHTS[resource]))),
   ])) as Record<Resource, number>;
 }
 
@@ -475,6 +546,7 @@ export default function Home() {
     gemNodes: plannedGemNodeCounts,
     upgradeLevels: calculationUpgradeLevels,
   }), [calculationUpgradeLevels, plannedGemLevels, plannedGemNodeCounts, profile, weights]);
+  const availableOrbs = profile.savedOrbs + profile.currentTrOrbs;
 
   const catalog = useMemo(() => {
     return UPGRADES.map((upgrade) => {
@@ -495,17 +567,22 @@ export default function Home() {
       const baseScore = upgrade.sourceScore > 0 ? upgrade.sourceScore : fallbackScore;
       const weightFactor = weights[upgrade.resource] / DEFAULT_WEIGHTS[upgrade.resource];
       const costFactor = Number.isFinite(nextCost) && upgrade.referenceCost > 0 ? upgrade.referenceCost / nextCost : 1;
-      const score = priceAvailable ? (metric ? metricScore(metric, nextCost) : baseScore * weightFactor * costFactor) : 0;
-      const bonus = metric?.bonus || upgrade.sourceBonus || (upgrade.isGemLevel ? "Unlocks and amplifies Gem bonuses" : upgrade.effect);
-      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, priceAvailable, unlocked, unlockedInPlan, score, bonus, scoreComponents: metric?.components ?? {}, maxed: current >= upgrade.max, levelLockReason: plannedLevelLockReason };
+      const maxed = current + plannedQuantity >= upgrade.max;
+      const recommendable = canRecommendUpgrade(current + plannedQuantity, upgrade.max, unlockedInPlan, priceAvailable);
+      const score = recommendable ? (metric ? metricScore(metric, nextCost) : baseScore * weightFactor * costFactor) : 0;
+      const mustBuy = isMandatoryTemporalLevel4(upgrade.id, current + plannedQuantity, plannedGemLevels.Exodus, availableOrbs);
+      const bonus = upgrade.id === "temporal-quality" && current + plannedQuantity === 3
+        ? "No direct bonus or new Gem upgrades; strategic progression priority"
+        : metric?.bonus || upgrade.sourceBonus || (upgrade.isGemLevel ? "Unlocks and amplifies Gem bonuses" : upgrade.effect);
+      return { ...upgrade, current, plannedQuantity, plannedLevel: current + plannedQuantity, nextCost, planCost, priceAvailable, unlocked, unlockedInPlan, score, bonus, scoreComponents: metric?.components ?? {}, maxed, mustBuy, levelLockReason: plannedLevelLockReason };
     });
-  }, [calculationContext, currentGemLevels, gemProgress, plan, plannedGemLevels, upgradeLevels, weights]);
+  }, [availableOrbs, calculationContext, currentGemLevels, gemProgress, plan, plannedGemLevels, upgradeLevels, weights]);
 
   const ranked = useMemo(() => catalog
     .filter((upgrade) => filter === "all" || upgrade.resource === filter)
     .filter((upgrade) => selectedGem === "all" || upgrade.gem === selectedGem)
-    .filter((upgrade) => availability === "all" || (availability === "available" ? upgrade.unlockedInPlan : !upgrade.unlockedInPlan))
-    .sort((a, b) => sort === "cost" ? a.nextCost - b.nextCost : b.score - a.score), [availability, catalog, filter, selectedGem, sort]);
+    .filter((upgrade) => availability === "all" || (availability === "available" ? canRecommendUpgrade(upgrade.plannedLevel, upgrade.max, upgrade.unlockedInPlan, upgrade.priceAvailable) : !upgrade.unlockedInPlan))
+    .sort((a, b) => Number(b.mustBuy) - Number(a.mustBuy) || Number(a.maxed) - Number(b.maxed) || (sort === "cost" ? a.nextCost - b.nextCost : b.score - a.score)), [availability, catalog, filter, selectedGem, sort]);
 
   const plannedItems = Object.keys(plan).map((id) => catalog.find((upgrade) => upgrade.id === id)).filter((upgrade) => upgrade && upgrade.plannedQuantity > 0) as (typeof catalog);
   const plannedNodeItems = GEM_NAMES.map((gem) => {
@@ -520,7 +597,6 @@ export default function Home() {
   const nodeIncrementCount = plannedNodeItems.reduce((sum, item) => sum + item.quantity, 0);
   const plannedCount = upgradeIncrementCount + nodeIncrementCount;
   const totalCost = plannedItems.reduce((sum, upgrade) => sum + upgrade.planCost, 0) + plannedNodeItems.reduce((sum, item) => sum + item.cost, 0);
-  const availableOrbs = profile.savedOrbs + profile.currentTrOrbs;
   const budgetDifference = availableOrbs - totalCost;
   const budgetRecommendations = useMemo(() => {
     if (budgetDifference < 0) return { items: [], remaining: 0 };
@@ -546,7 +622,7 @@ export default function Home() {
     }).sort((a, b) => {
       const aSelected = selectedGem !== "all" && a.gem === selectedGem ? 1 : 0;
       const bSelected = selectedGem !== "all" && b.gem === selectedGem ? 1 : 0;
-      return bSelected - aSelected || b.score - a.score || a.nextCost - b.nextCost;
+      return Number(b.mustBuy) - Number(a.mustBuy) || bSelected - aSelected || b.score - a.score || a.nextCost - b.nextCost;
     });
     const initialGemLevel = affordableGemLevels[0];
     if (initialGemLevel) {
@@ -820,13 +896,13 @@ export default function Home() {
                 <div className="upgrade-list">{ranked.map((upgrade, index) => {
                   const selected = upgrade.plannedQuantity > 0;
                   const locked = !upgrade.unlockedInPlan;
-                  return <article className={`upgrade-row ${selected ? "selected" : ""} ${locked ? "locked" : ""}`} key={upgrade.id}>
+                  return <article className={`upgrade-row ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${upgrade.mustBuy ? "must-buy" : ""}`} key={upgrade.id}>
                     <span className="rank">#{index + 1}</span><div className="gem-badge" style={{ "--gem": upgrade.accent } as React.CSSProperties}><GemArtwork gem={upgrade.gem} /></div>
-                    <div className="upgrade-main"><strong>{upgrade.name}</strong><span>{upgrade.gem} Gem · {upgrade.effect}</span>{!upgrade.unlocked && upgrade.unlockedInPlan && <em>Will unlock with the Gem levels in your plan</em>}{locked && <em>{upgrade.levelLockReason || `Unlocks at Gem level ${upgrade.requiredLevel}`}</em>}</div>
+                    <div className="upgrade-main"><strong>{upgrade.name}</strong><span>{upgrade.gem} Gem · {upgrade.effect}</span>{upgrade.mustBuy && <em>Must-buy: you have enough Orbs</em>}{!upgrade.unlocked && upgrade.unlockedInPlan && <em>Will unlock with the Gem levels in your plan</em>}{locked && <em>{upgrade.levelLockReason || `Unlocks at Gem level ${upgrade.requiredLevel}`}</em>}</div>
                     <div className="level level-readonly"><span>{upgrade.isGemLevel ? "GEM LEVEL" : "LEVEL"}</span><strong>{upgrade.current}{selected ? ` → ${upgrade.plannedLevel}` : ""} / {upgrade.max}</strong></div>
                     <div className="cost"><span>{selected ? `PLAN · ${upgrade.plannedQuantity}` : "NEXT COST"}</span><strong>{upgrade.maxed ? "MAX" : upgrade.priceAvailable ? `◈ ${formatNumber(selected ? upgrade.planCost : upgrade.nextCost)}` : "Unavailable"}</strong></div>
                     <div className="bonus" title={upgrade.bonus}><span>BONUS</span><strong>{upgrade.bonus}</strong></div>
-                    <div className="efficiency"><span>SCORE</span><strong>{upgrade.score.toFixed(1)}</strong><div><i style={{ width: `${Math.min(100, upgrade.score * 2.2)}%` }} /></div></div>
+                    <div className="efficiency"><span>{upgrade.mustBuy ? "PRIORITY" : "SCORE"}</span><strong>{upgrade.mustBuy ? "MUST" : upgrade.score.toFixed(1)}</strong><div><i style={{ width: upgrade.mustBuy ? "100%" : `${Math.min(100, upgrade.score * 2.2)}%` }} /></div></div>
                     <ResourceIcon resource={upgrade.resource} /><button className="add-button" disabled={locked || !upgrade.priceAvailable || upgrade.current + upgrade.plannedQuantity >= upgrade.max} title={!upgrade.priceAvailable && !upgrade.maxed ? "Price unavailable in source data" : ""} onClick={() => addPlanIncrement(upgrade.id)} aria-label={`Add one level of ${upgrade.name}`}>{selected ? <span>+{upgrade.plannedQuantity}</span> : locked ? "×" : upgrade.priceAvailable ? "+" : "?"}</button>
                   </article>;
                 })}</div>
@@ -886,7 +962,7 @@ export default function Home() {
             <h2 className="subsection-title progression-title">Optional starting points</h2><p className="setup-hint">Community examples only — these milestone names do not exist in the game. Applying one keeps your orb balance and you can adjust every value afterwards.</p><div className="milestone-grid">{PROGRESSION_EXAMPLES.map((example) => <button key={example.name} onClick={() => applyProgressionExample(example)}><span>{example.name}</span><strong>{example.description}</strong><small>{example.values.research} research · {formatNumber(example.values.tech)} tech · {example.values.meltdown} meltdown</small></button>)}</div>
           </section>}
 
-          {view === "weights" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">PERSONAL PRIORITIES</p><h1>Resource weights</h1><p>Tell the planner what matters most to your build.</p></div><button className="ghost-button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Restore defaults</button></div><div className="weights-grid">{PLANNER_RESOURCES.map((resource) => { const sliderMax = resource === "borge" || resource === "ozzy" || resource === "knox" ? 20000 : 120; return <article className="weight-card panel" key={resource}><ResourceIcon resource={resource} /><div><strong>{RESOURCE_META[resource].label}</strong><small>Relative value</small></div><input type="range" min="0" max={sliderMax} value={Math.min(sliderMax, weights[resource])} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Number(event.target.value) }))} style={{ "--range": RESOURCE_META[resource].color } as React.CSSProperties} /><input className="weight-number" type="number" min={0} value={weights[resource]} onFocus={(event) => event.currentTarget.select()} onChange={(event) => setWeights((current) => ({ ...current, [resource]: Math.max(0, Number(event.currentTarget.value) || 0) }))} aria-label={`${RESOURCE_META[resource].label} weight`} /></article>; })}</div><div className="info-panel panel"><span>i</span><div><strong>How weights work</strong><p>Each upgrade can now contribute to several resources at once. Borge, Ozzy and Knox loot use the larger defaults from the original planner, so compare the balance between weights rather than their absolute values.</p></div></div></section>}
+          {view === "weights" && <section className="single-view"><div className="section-heading"><div><p className="eyebrow">PERSONAL PRIORITIES</p><h1>Resource weights</h1><p>Tell the planner what matters most to your build.</p></div><button className="ghost-button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Restore defaults</button></div><div className="weights-grid">{PLANNER_RESOURCES.map((resource) => <article className="weight-card panel" key={resource}><ResourceIcon resource={resource} /><div><strong>{RESOURCE_META[resource].label}</strong><small>Priority · 0–200%</small></div><WeightControl resource={resource} value={weights[resource]} onChange={(value) => setWeights((current) => ({ ...current, [resource]: value }))} /></article>)}</div><div className="info-panel panel"><span>i</span><div><strong>How weights work</strong><p>All resources use the same 0–200% priority range. 100% preserves the original spreadsheet balance, 0% ignores that resource and 200% doubles its influence. Typed values are applied when you press Enter or leave the field.</p></div></div></section>}
 
           <footer className="site-footer">
             <div><strong>Unofficial, non-commercial community tool</strong><p>Not affiliated with or endorsed by Octocube Games. CIFI and its game assets belong to their respective rights holders.</p><p className="creator-credit">Community adaptation and web development by <a href="https://github.com/Deathsunset" target="_blank" rel="noreferrer">Deathsunset</a>.</p></div>
